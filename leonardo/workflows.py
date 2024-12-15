@@ -1,15 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-# Imports should be grouped into:
-# Standard library imports
-# Related third party imports
-# Local application / relative imports
-# in that order
-
 # Standard library
 import logging
-from typing import Any, Tuple
 
 # Third party
 
@@ -37,12 +30,13 @@ class workflow_wrapper(object):
     """
 
     def __init__(self, workflow_type, input_dir, output_dir):
-        # TODO:
+        # TODO: currently, it is a placeholder
         print(workflow_type)
         print(input_dir)
         print(output_dir)
 
     def process(self):
+        # TODO: currently, it is a placeholder
         if self.workflow_type == "destripe_fuse":
             print(self.input_dir)
             print(self.output_dir)
