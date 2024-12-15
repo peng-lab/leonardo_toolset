@@ -13,4 +13,4 @@ def get_module_version():
     return __version__
 
 
-from .example import Example  # noqa: F401
+from .workflows import workflow_wrapper  # noqa: F401

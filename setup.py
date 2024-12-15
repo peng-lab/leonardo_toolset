@@ -74,7 +74,7 @@ setup(
     description="Leonardo: an LSFM image processing toolset",
     entry_points={
         "console_scripts": [
-            "my_example=leonardo.bin.my_example:main"
+            "run_leonardo=leonardo.bin.leonardo_workflow:main"
         ],
     },
     install_requires=requirements,

@@ -11,7 +11,7 @@ import logging
 import sys
 import traceback
 
-from leonardo import Example, get_module_version
+from leonardo import workflow_wrapper, get_module_version
 
 ###############################################################################
 
@@ -25,21 +25,15 @@ logging.basicConfig(
 
 class Args(argparse.Namespace):
 
-    DEFAULT_FIRST = 10
-    DEFAULT_SECOND = 20
-
     def __init__(self):
         # Arguments that could be passed in through the command line
-        self.first = self.DEFAULT_FIRST
-        self.second = self.DEFAULT_SECOND
         self.debug = False
-        #
         self.__parse()
 
     def __parse(self):
         p = argparse.ArgumentParser(
-            prog="run_exmaple",
-            description="A simple example of a bin script",
+            prog="run_leonardo_workflows",
+            description="batch running for leonardo workflows",
         )
 
         p.add_argument(
@@ -49,22 +43,25 @@ class Args(argparse.Namespace):
             version="%(prog)s " + get_module_version(),
         )
         p.add_argument(
-            "-f",
-            "--first",
-            action="store",
-            dest="first",
-            type=int,
-            default=self.first,
-            help="The first argument value",
+            "--input",
+            dest="input_dir",
+            required=True,
+            help="path to the input folder",
         )
         p.add_argument(
-            "-s",
-            "--second",
-            action="store",
-            dest="second",
-            type=int,
-            default=self.second,
-            help="The first argument value",
+            "--output",
+            dest="output_dir",
+            required=True,
+            help="path to save the results",
+        )
+        p.add_argument(
+            "--workflow",
+            dest="workflow_type",
+            default="destripe_fuse",
+            help=(
+                "select the type of workflow: destripe_fuse (default), "
+                "destripe_only, fuse_only"
+            ),
         )
         p.add_argument(
             "--debug",
@@ -83,13 +80,8 @@ def main():
         args = Args()
         dbg = args.debug
 
-        # Do your work here - preferably in a class or function,
-        # passing in your args. E.g.
-        exe = Example(args.first)
-        exe.update_value(args.second)
-        print(
-            "First : {}\nSecond: {}".format(exe.get_value(), exe.get_previous_value())
-        )
+        exe = workflow_wrapper(args.workflow_type, args.input_dir, args.output_dir)
+        exe.process()
 
     except Exception as e:
         log.error("=============================================")
