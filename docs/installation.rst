@@ -1,51 +1,51 @@
-.. highlight:: shell
-
-============
 Installation
 ============
 
+Leonardo requires Python<=3.9 and numpy<2.0. We highly recommend using :mod:`conda` 
+virtual environment to install and operate Leonardo.
 
-Stable release
---------------
+PyPI
+-----
 
-To install leonardo_toolset, run this command in your terminal:
+Install Leonardo from PyPI using:
 
-.. code-block:: console
+.. code-block:: bash
 
-    $ pip install leonardo_toolset
+    conda create -n leonardo python=3.9 numpy=1.26.4
+    conda activate leonardo
+    pip install leonardo_toolset
 
-This is the preferred method to install Leonardo_toolset, as it will always install the most recent stable release.
+or full software including Napari plugins:
 
-If you don't have `pip`_ installed, this `Python installation guide`_ can guide
-you through the process.
+.. code-block:: bash
 
-.. _pip: https://pip.pypa.io
-.. _Python installation guide: http://docs.python-guide.org/en/latest/starting/installation/
-
-
-From sources
-------------
-
-The sources for leonardo_toolset can be downloaded from the `Github repo`_.
-
-You can either clone the public repository:
-
-.. code-block:: console
-
-    $ git clone git://github.com/peng-lab/leonardo_toolset
-
-Or download the `tarball`_:
-
-.. code-block:: console
-
-    $ curl  -OL https://github.com/peng-lab/leonardo_toolset/tarball/main
-
-Once you have a copy of the source, you can install it with:
-
-.. code-block:: console
-
-    $ python setup.py install
+    pip install leonardo_toolset[napari]
 
 
-.. _Github repo: https://github.com/peng-lab/leonardo_toolset
-.. _tarball: https://github.com/peng-lab/leonardo_toolset/tarball/main
+.. toggle::
+   :show:
+
+    Core components in :mod:`Leonardo` are installable separately:
+
+    .. code-block:: bash
+
+        # Leonardo-DeStripe
+        pip install lsfm-destripe
+        
+        # Leonardo-Fuse
+        pip install lsfm-fuse
+
+        # Leonardo-DeStripe in Napari
+        pip install lsfm_destripe_napari
+
+        # Leonardo-Fuse in Napari
+        pip install lsfm_fusion_napari
+
+Development Version
+--------------------
+
+To work with the latest development version, install from GitHub using:
+
+.. code-block:: bash
+
+    pip install git+https://github.com/peng-lab/leonardo_toolset.git
