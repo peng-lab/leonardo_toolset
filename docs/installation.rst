@@ -3,6 +3,8 @@ Installation
 
 Leonardo requires Python<=3.9 and numpy<2.0. We highly recommend using :mod:`conda` 
 virtual environment to install and operate Leonardo.
+The jax version has been tested on Windows, a solution for macOS and Linux is being worked on.
+Please refer to the PyTorch version on those operating systems.
 
 PyPI
 -----
