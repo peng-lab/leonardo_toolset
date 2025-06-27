@@ -1,0 +1,5 @@
+# .flake8
+[flake8]
+exclude = docs/
+ignore = E501, W503, E203, E266
+max-line-length = 88

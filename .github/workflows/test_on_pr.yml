@@ -31,11 +31,6 @@ jobs:
       - name: Run tests with pytest
         run: pytest leonardo_toolset/tests/
 
-      - name: Debug flake8 config source
-        run: |
-          flake8 --version
-          flake8 --verbose leonardo_toolset | head -n 20
-
       - name: Lint with flake8
         run: |
           flake8 leonardo_toolset --count --verbose --show-source --statistics
