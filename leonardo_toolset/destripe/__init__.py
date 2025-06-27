@@ -4,9 +4,8 @@ __email__ = "liuyu9671@gmail.com"
 # Details in CONTRIBUTING.md
 __version__ = "0.2.0"
 
+from .core import DeStripe  # noqa: F401
+
 
 def get_module_version():
     return __version__
-
-
-from .core import DeStripe  # noqa: F401
