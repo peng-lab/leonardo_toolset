@@ -38,11 +38,11 @@ dependencies = [
     "colour",
     "open3d",
     "h5py",
-    "bioio",
+    "bioio<2",
     "bioio-tifffile",
     "jinja2",
     "pyyaml",
-    "bioio-ome-tiff",
+    "bioio-ome-tiff<1.2",
 ]
 
 [project.optional-dependencies]
