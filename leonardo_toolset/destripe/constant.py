@@ -110,7 +110,9 @@ Alias of ``tuple[torch.Tensor, *tuple[WaveletDetailTuple2d, ...]]``
 """
 
 # Note: This data structure was chosen to follow pywt's conventions
-WaveletCoeffNd: TypeAlias = tuple[torch.Tensor, Unpack[tuple[WaveletDetailDict, ...]]]  # noqa: E501
+WaveletCoeffNd: TypeAlias = tuple[
+    torch.Tensor, Unpack[tuple[WaveletDetailDict, ...]]
+]  # noqa: E501
 """Type alias for wavelet transform results in any dimension.
 
 This type alias represents the result of a Nd wavelet transform

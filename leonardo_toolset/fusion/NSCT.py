@@ -139,7 +139,7 @@ class NSCTdec(nn.Module):
                 start = start + 1
             while np.sum(np.abs(y[finish, :])) == 0:
                 finish = finish - 1
-            y = y[start: finish + 1, :]
+            y = y[start : finish + 1, :]
         else:
             y = np.zeros((sx[0], sx[1] + sx[0] - 1))
             shift2 = (
@@ -156,7 +156,7 @@ class NSCTdec(nn.Module):
                 start = start + 1
             while np.sum(np.abs(y[:, finish])) == 0:
                 finish = finish - 1
-            y = y[:, start: finish + 1]
+            y = y[:, start : finish + 1]
         return y
 
     def modulate2(self, x, modulateType):

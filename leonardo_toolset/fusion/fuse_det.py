@@ -108,9 +108,7 @@ class FUSE_det:
         registration_params=None,
     ):
         if device is None:
-            device = torch.device(
-                "cuda" if torch.cuda.is_available() else "cpu"
-            )
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.train_params = {
             "require_precropping": require_precropping,
             "precropping_params": precropping_params,

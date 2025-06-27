@@ -13,10 +13,10 @@ class GuidedFilterLoss:
         self.r, self.eps = r, eps
 
     def diff_x(self, input, r):
-        return input[:, :, 2 * r + 1:, :] - input[:, :, : -2 * r - 1, :]
+        return input[:, :, 2 * r + 1 :, :] - input[:, :, : -2 * r - 1, :]
 
     def diff_y(self, input, r):
-        return input[:, :, :, 2 * r + 1:] - input[:, :, :, : -2 * r - 1]
+        return input[:, :, :, 2 * r + 1 :] - input[:, :, :, : -2 * r - 1]
 
     def boxfilter(self, input):
         return self.diff_x(
@@ -313,13 +313,13 @@ class Loss_torch(nn.Module):
                 math.cos(-A / 180 * math.pi + math.pi / 2),
                 math.sin(-A / 180 * math.pi + math.pi / 2),
             )
-            DGaussxx[i: i + 1] = np.fft.ifft2(
+            DGaussxx[i : i + 1] = np.fft.ifft2(
                 (a * gxFFT2 + b * gyFFT2) * (a * gxFFT2 + b * gyFFT2), axes=(-2, -1)
             ).real[None, None, :KernelSize, :KernelSize]
-            DGaussyy[i: i + 1] = np.fft.ifft2(
+            DGaussyy[i : i + 1] = np.fft.ifft2(
                 (c * gxFFT2 + d * gyFFT2) * (c * gxFFT2 + d * gyFFT2), axes=(-2, -1)
             ).real[None, None, :KernelSize, :KernelSize]
-            DGaussxy[i: i + 1] = np.fft.ifft2(
+            DGaussxy[i : i + 1] = np.fft.ifft2(
                 (c * gxFFT2 + d * gyFFT2) * (a * gxFFT2 + b * gyFFT2), axes=(-2, -1)
             ).real[None, None, :KernelSize, :KernelSize]
         DGaussxx = DGaussxx - DGaussxx.mean(axis=(-2, -1), keepdims=True)

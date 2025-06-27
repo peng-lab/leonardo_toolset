@@ -24,9 +24,7 @@ from leonardo_toolset.destripe.utils_torch import (
 )
 from leonardo_toolset.destripe.post_processing import post_process_module
 
-warnings.filterwarnings(
-    "ignore", message="ignoring keyword argument 'read_only'"
-)
+warnings.filterwarnings("ignore", message="ignoring keyword argument 'read_only'")
 
 try:
     # import haiku as hk
@@ -79,17 +77,13 @@ class DeStripe:
             "wedge_degree": wedge_degree,
         }
         if device is None:
-            self.device = torch.device(
-                "cuda" if torch.cuda.is_available() else "cpu"
-            )
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         else:
             self.device = device
         self.backend = backend
         if jax_flag == 0:
             if self.backend == "jax":
-                print(
-                    "jax not available on the current env, use torch instead."
-                )
+                print("jax not available on the current env, use torch instead.")
             self.backend = "torch"
 
     # ## INTERFACE ###
@@ -138,10 +132,14 @@ class DeStripe:
     ):
         rng_seq = jax.random.PRNGKey(0) if backend == "jax" else None
         md = (
-            sample_params["md"] if sample_params["is_vertical"] else sample_params["nd"]  # noqa: E501
+            sample_params["md"]
+            if sample_params["is_vertical"]
+            else sample_params["nd"]  # noqa: E501
         )
         nd = (
-            sample_params["nd"] if sample_params["is_vertical"] else sample_params["md"]  # noqa: E501
+            sample_params["nd"]
+            if sample_params["is_vertical"]
+            else sample_params["md"]  # noqa: E501
         )
         target = (X * fusion_mask).sum(1, keepdims=True)
         targetd = target[:, :, :: sample_params["r"], :]
@@ -420,10 +418,10 @@ class DeStripe:
             )
 
         for i in range(z):
-            input = np.log10(np.clip(np.asarray(X[i: i + 1])[:, :, :m, :n], 1, None))
-            mask_slice = np.asarray(mask[i: i + 1, :m, :n])[None]
+            input = np.log10(np.clip(np.asarray(X[i : i + 1])[:, :, :m, :n], 1, None))
+            mask_slice = np.asarray(mask[i : i + 1, :m, :n])[None]
             if flag_compose:
-                fusion_mask_slice = np.asarray(fusion_mask[i: i + 1])[:, :, :m, :n]
+                fusion_mask_slice = np.asarray(fusion_mask[i : i + 1])[:, :, :m, :n]
             else:
                 fusion_mask_slice = np.ones(input.shape, dtype=np.float32)
 

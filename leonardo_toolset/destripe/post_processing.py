@@ -105,10 +105,10 @@ class GuidedFilterLoss:
         self.r, self.eps = r, eps
 
     def diff_x(self, input, r):
-        return input[:, :, 2 * r:, :] - input[:, :, : -2 * r, :]
+        return input[:, :, 2 * r :, :] - input[:, :, : -2 * r, :]
 
     def diff_y(self, input, r):
-        return input[:, :, :, 2 * r:] - input[:, :, :, : -2 * r]
+        return input[:, :, :, 2 * r :] - input[:, :, :, : -2 * r]
 
     def boxfilter(self, input):
         return self.diff_x(
@@ -555,10 +555,10 @@ def post_process_module(
         for ind, (angle_list, illu) in enumerate(
             zip(angle_offset_individual, illu_orient)
         ):
-            hX = hX0[:, ind: ind + 1].astype(np.float32)
+            hX = hX0[:, ind : ind + 1].astype(np.float32)
             foreground = (
-                np.log10(hX0[:, ind: ind + 1] + 1)
-                > threshold_otsu(np.log10(hX0[:, ind: ind + 1] + 1))
+                np.log10(hX0[:, ind : ind + 1] + 1)
+                > threshold_otsu(np.log10(hX0[:, ind : ind + 1] + 1))
             ) + (result_0 > threshold_otsu(result_0))
             for angle in angle_list:
                 hX = linear_propagation(

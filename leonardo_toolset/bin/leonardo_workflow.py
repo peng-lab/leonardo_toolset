@@ -17,8 +17,7 @@ from leonardo_toolset import get_module_version, workflow_wrapper
 
 log = logging.getLogger()
 logging.basicConfig(
-    level=logging.INFO,
-    format="[%(levelname)4s:%(lineno)4s %(asctime)s] %(message)s"
+    level=logging.INFO, format="[%(levelname)4s:%(lineno)4s %(asctime)s] %(message)s"
 )
 
 ###############################################################################
@@ -81,9 +80,7 @@ def main():
         args = Args()
         dbg = args.debug
 
-        exe = workflow_wrapper(
-            args.workflow_type, args.input_dir, args.output_dir
-        )
+        exe = workflow_wrapper(args.workflow_type, args.input_dir, args.output_dir)
         exe.process()
 
     except Exception as e:

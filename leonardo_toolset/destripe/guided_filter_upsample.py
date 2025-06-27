@@ -135,9 +135,9 @@ class GuidedUpsample:
         y = np.ones_like(fusion_mask)
 
         for i, angle_list in enumerate(angle_offset_individual):
-            hX_slice = hX[:, i: i + 1, :, :]
+            hX_slice = hX[:, i : i + 1, :, :]
 
-            y[:, i: i + 1, :, :] = (
+            y[:, i : i + 1, :, :] = (
                 self.GF(
                     recon,
                     hX_slice,
@@ -166,7 +166,7 @@ class GuidedUpsample:
             for ind, r in enumerate(range(rx)):
                 data = F.pad(b, (lval.max(), lval.max(), rx // 2, rx // 2), "reflect")
                 b_batch[ind] = data[
-                    :, :, r: r + m, lval[ind] - lval.min(): lval[ind] - lval.min() + n
+                    :, :, r : r + m, lval[ind] - lval.min() : lval[ind] - lval.min() + n
                 ].cpu()
             b = torch.median(b_batch, 0)[0]
 

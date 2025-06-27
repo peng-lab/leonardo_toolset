@@ -36,6 +36,7 @@ from leonardo_toolset.fusion.utils import (
 )
 
 import pandas as pd
+
 pd.set_option("display.width", 10000)
 
 
@@ -359,13 +360,13 @@ class FUSE_illu:
                 max_bottom=maxvvol_bottom,
                 topVol=rawPlanes_top[
                     :,
-                    xs: xe: self.train_params["resample_ratio"],
-                    ys: ye: self.train_params["resample_ratio"],
+                    xs : xe : self.train_params["resample_ratio"],
+                    ys : ye : self.train_params["resample_ratio"],
                 ],
                 bottomVol=rawPlanes_bottom[
                     :,
-                    xs: xe: self.train_params["resample_ratio"],
-                    ys: ye: self.train_params["resample_ratio"],
+                    xs : xe : self.train_params["resample_ratio"],
+                    ys : ye : self.train_params["resample_ratio"],
                 ],
                 topVol_F=topF.transpose(1, 0, 2),
                 bottomVol_F=bottomF.transpose(1, 0, 2),
@@ -922,7 +923,7 @@ def fusionResult(
     for ii in tqdm.tqdm(
         range(GFr[0] // 2, len(l_temp) - GFr[0] // 2), desc="fusion: "
     ):  # topVol.shape[0]
-        l_s = l_temp[ii - GFr[0] // 2: ii + GFr[0] // 2 + 1]
+        l_s = l_temp[ii - GFr[0] // 2 : ii + GFr[0] // 2 + 1]
         boundary_slice = boundary[:, l_s, :, :]
 
         bottomMask = (mask > boundary_slice).to(torch.float)

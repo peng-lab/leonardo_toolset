@@ -16,6 +16,7 @@ from leonardo_toolset.fusion import FUSE_illu  # noqa: F401
 def get_module_version():
     return __version__
 
+
 # from .workflows import workflow_wrapper  # noqa: F401
 # from lsfm_destripe import DeStripe  # noqa: F401
 # from lsfm_fuse import FUSE_illu  # noqa: F401
