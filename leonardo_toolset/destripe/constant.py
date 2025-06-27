@@ -45,7 +45,8 @@ OrthogonalizeMethod = Literal["qr", "gramschmidt"]
 """
 The method for orthogonalizing a matrix.
 
-1. ``qr`` relies on pytorch's dense QR implementation, it is fast but memory hungry.
+1. ``qr`` relies on pytorch's dense QR implementation, it is fast but memory
+    hungry.
 2. ``gramschmidt`` option is sparse, memory efficient, and slow.
 
 Choose ``gramschmidt`` if ``qr`` runs out of memory.
@@ -63,8 +64,9 @@ This is a type literal for the order of wavelet packet tree nodes.
 class WaveletDetailTuple2d(NamedTuple):
     """Detail coefficients of a 2d wavelet transform for a given level.
 
-    This is a type alias for a named tuple ``(H, V, D)`` of detail coefficient tensors
-    where ``H`` denotes horizontal, ``V`` vertical and ``D`` diagonal coefficients.
+    This is a type alias for a named tuple ``(H, V, D)`` of detail coefficient
+    tensors, where ``H`` denotes horizontal, ``V`` vertical and ``D`` diagonal
+    coefficients.
     """
 
     horizontal: torch.Tensor
@@ -78,9 +80,9 @@ WaveletDetailDict: TypeAlias = dict[str, torch.Tensor]
 This type alias represents the detail coefficient tensors of a given level for
 a wavelet transform in :math:`N` dimensions as the values of a dictionary.
 Its keys are a string of length :math:`N` describing the detail coefficient
-by the applied filter for each axis. The string consists only of chars 'a' and 'd'
-where 'a' denotes the low pass or approximation filter and 'd' the high-pass
-or detail filter.
+by the applied filter for each axis. The string consists only of chars 'a' and
+'d' where 'a' denotes the low pass or approximation filter and 'd' the
+high-pass or detail filter.
 For a 3d transform, the dictionary thus uses the keys::
 
 ("aad", "ada", "add", "daa", "dad", "dda", "ddd")
@@ -101,24 +103,24 @@ with :math:`n` levels as a tuple ``(A, Tn, ..., T1)`` of length :math:`n + 1`.
 of decomposition. ``Tl`` is a tuple of detail coefficients for level ``l``,
 see :data:`ptwt.constants.WaveletDetailTuple2d`.
 
-Note that this type always contains an approximation coefficient tensor but does not
-necesseraily contain any detail coefficients.
+Note that this type always contains an approximation coefficient tensor but
+does not necesseraily contain any detail coefficients.
 
 Alias of ``tuple[torch.Tensor, *tuple[WaveletDetailTuple2d, ...]]``
 """
 
 # Note: This data structure was chosen to follow pywt's conventions
-WaveletCoeffNd: TypeAlias = tuple[torch.Tensor, Unpack[tuple[WaveletDetailDict, ...]]]
+WaveletCoeffNd: TypeAlias = tuple[torch.Tensor, Unpack[tuple[WaveletDetailDict, ...]]]  # noqa: E501
 """Type alias for wavelet transform results in any dimension.
 
 This type alias represents the result of a Nd wavelet transform
 with :math:`n` levels as a tuple ``(A, Dn, ..., D1)`` of length :math:`n + 1`.
 ``A`` denotes a tensor of approximation coefficients for the `n`-th level
-of decomposition. ``Dl`` is a dictionary of detail coefficients for level ``l``,
+of decomposition. ``Dl`` is a dictionary of detail coefficients for level ``l``
 see :data:`ptwt.constants.WaveletDetailDict`.
 
-Note that this type always contains an approximation coefficient tensor but does not
-necesseraily contain any detail coefficients.
+Note that this type always contains an approximation coefficient tensor but
+does not necesseraily contain any detail coefficients.
 
 Alias of ``tuple[torch.Tensor, *tuple[WaveletDetailDict, ...]]``
 """

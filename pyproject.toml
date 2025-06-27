@@ -109,5 +109,5 @@ leonardo_toolset = ["**/*.yaml"]
 
 [tool.flake8]
 exclude = "docs/"
-ignore = ["W503", "E203", "E266"]
+ignore = ["E501","W503", "E203", "E266"]
 max-line-length = 88

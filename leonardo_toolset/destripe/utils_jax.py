@@ -73,7 +73,7 @@ def generate_mask_dict_jax(
     for i, ao in enumerate(sample_params["angle_offset_individual"]):
         mask_xi_f = np.isin(sample_params["angle_offset"], ao)
         mask_xi = mask_xi_f[:, None].reshape(-1)
-        mask_valid += mask_xi[None, :, None, None] * fusion_mask[:, i : i + 1, :, :]
+        mask_valid += mask_xi[None, :, None, None] * fusion_mask[:, i: i + 1, :, :]
     mask_valid = mask_valid > 0
     mask_tv = mask_tv * mask_valid
     mask_hessian = mask_hessian * mask_valid
@@ -144,7 +144,7 @@ def generate_mask_dict_jax(
     ].set(0)
 
     t = jnp.linspace(0, y.shape[-2] - 1, (y.shape[-2] - 1) * sample_params["r"] + 1)
-    t = jnp.concatenate((t, t[1 : sample_params["r"]] + t[-1]))
+    t = jnp.concatenate((t, t[1: sample_params["r"]] + t[-1]))
     coor = jnp.zeros((4, hy.shape[-2], hy.shape[-1]))
     coor = coor.at[2, :, :].set(t[:, None])
     coor = coor.at[3, :, :].set(jnp.arange(hy.shape[-1])[None, :])

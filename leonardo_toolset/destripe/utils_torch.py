@@ -129,7 +129,7 @@ def generate_mask_dict_torch(
             hy.device
         )
         mask_xi = mask_xi_f[:, None].reshape(-1)
-        mask_valid += mask_xi[None, :, None, None] * fusion_mask[:, i : i + 1, :, :]
+        mask_valid += mask_xi[None, :, None, None] * fusion_mask[:, i: i + 1, :, :]
     mask_valid = mask_valid > 0
     mask_tv = mask_tv * mask_valid
     mask_hessian = mask_hessian * mask_valid
@@ -212,7 +212,7 @@ def generate_mask_dict_torch(
 
     t = torch.linspace(0, y.shape[-2] - 1, (y.shape[-2] - 1) * sample_params["r"] + 1)
     t_max = t.max()
-    t = torch.cat((t, t[1 : sample_params["r"]] + t[-1]))
+    t = torch.cat((t, t[1: sample_params["r"]] + t[-1]))
 
     t = t / t_max
     t = (t - 0.5) * 2

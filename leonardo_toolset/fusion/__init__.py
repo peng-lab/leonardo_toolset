@@ -8,10 +8,9 @@ __email__ = "liuyu9671@gmail.com"
 # Details in CONTRIBUTING.md
 __version__ = "0.0.2"
 
+from .fuse_det import FUSE_det  # noqa: F401
+from .fuse_illu import FUSE_illu  # noqa: F401
+
 
 def get_module_version():
     return __version__
-
-
-from .fuse_det import FUSE_det
-from .fuse_illu import FUSE_illu

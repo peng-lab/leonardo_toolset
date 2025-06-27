@@ -1,10 +1,7 @@
 import torch.nn as nn
 from torch.optim import Adam
 import scipy
-
-import torch.nn as nn
 import numpy as np
-from torch.optim import Adam
 import torch
 from leonardo_toolset.destripe.utils import crop_center
 import copy
@@ -51,7 +48,7 @@ class stripe_post(nn.Module):
         self, b, b_negative, foreground_b, hX, recon_old, fusion_mask, b_old, r
     ):
 
-        if self.recon_guided == None:
+        if self.recon_guided is None:
             self.recon_old_max, self.ind_max = F.max_pool2d_with_indices(
                 recon_old,
                 (1, 2 * self.r + 1),
@@ -108,10 +105,10 @@ class GuidedFilterLoss:
         self.r, self.eps = r, eps
 
     def diff_x(self, input, r):
-        return input[:, :, 2 * r :, :] - input[:, :, : -2 * r, :]
+        return input[:, :, 2 * r:, :] - input[:, :, : -2 * r, :]
 
     def diff_y(self, input, r):
-        return input[:, :, :, 2 * r :] - input[:, :, :, : -2 * r]
+        return input[:, :, :, 2 * r:] - input[:, :, :, : -2 * r]
 
     def boxfilter(self, input):
         return self.diff_x(
@@ -303,7 +300,7 @@ def train_post_process_module(
         b_new = (F.interpolate(b_new, hX.shape[-2:], mode="bilinear") + hX)[
             :, :, ::rr, :
         ]
-        l = loss(
+        ll = loss(
             decay,
             weight,
             b_new,
@@ -316,7 +313,7 @@ def train_post_process_module(
             rr,
         )
         opt.zero_grad()
-        l.backward()
+        ll.backward()
         opt.step()
     return b_new2  # -hX[:, :, ::r, :]
 
@@ -346,7 +343,7 @@ def linear_propagation(
     seg_mask = generate_seg_mask(result_network, hX)
 
     m0, n0 = hX.shape[-2:]
-    hX0 = copy.deepcopy(hX)
+    # hX0 = copy.deepcopy(hX)
 
     foreground = scipy.ndimage.rotate(
         foreground, -angle_offset, order=0, axes=(-2, -1), mode="constant"
@@ -484,9 +481,9 @@ def linear_propagation(
         loss = loss_compose_post().to(device)
         for e in tqdm.tqdm(range(1000)):
             recon, b = model(recon_up - hX, recon_bottom - hX, hX)
-            l = loss(recon, hX, foreground, valid_mask, fidelity_mask)
+            ll = loss(recon, hX, foreground, valid_mask, fidelity_mask)
             opt.zero_grad()
-            l.backward()
+            ll.backward()
             opt.step()
         recon = recon.cpu().data.numpy()
     if illu_orient == "top":
@@ -537,7 +534,7 @@ def post_process_module(
     hX = np.pad(hX, ((0, 0), (0, 0), (259, 259), (0, 0)), "reflect")
     result_0 = np.pad(result_0, ((0, 0), (0, 0), (259, 259), (0, 0)), "reflect")
     hX0 = copy.deepcopy(hX)
-    target = (10**hX * fusion_mask).sum(1, keepdims=True)
+    # target = (10**hX * fusion_mask).sum(1, keepdims=True)
 
     if fusion_mask is None:
         foreground = (np.log10(hX0 + 1) > threshold_otsu(np.log10(hX0 + 1))) + (
@@ -558,10 +555,10 @@ def post_process_module(
         for ind, (angle_list, illu) in enumerate(
             zip(angle_offset_individual, illu_orient)
         ):
-            hX = hX0[:, ind : ind + 1].astype(np.float32)
+            hX = hX0[:, ind: ind + 1].astype(np.float32)
             foreground = (
-                np.log10(hX0[:, ind : ind + 1] + 1)
-                > threshold_otsu(np.log10(hX0[:, ind : ind + 1] + 1))
+                np.log10(hX0[:, ind: ind + 1] + 1)
+                > threshold_otsu(np.log10(hX0[:, ind: ind + 1] + 1))
             ) + (result_0 > threshold_otsu(result_0))
             for angle in angle_list:
                 hX = linear_propagation(
@@ -581,6 +578,6 @@ def post_process_module(
         fusion_mask = fusion_mask[0, :, 259:-259, :]
         recon = (recon * fusion_mask).sum(
             0, keepdims=True
-        )  #  * fusion_mask[:, :recon.shape[1], :recon.shape[2]]
+        )  # * fusion_mask[:, :recon.shape[1], :recon.shape[2]]
 
         return recon[None]

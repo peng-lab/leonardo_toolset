@@ -1,86 +1,27 @@
 from datetime import datetime
-
-
-def make_Ramp(ramp_colors):
-    from colour import Color
-    from matplotlib.colors import LinearSegmentedColormap
-
-    color_ramp = LinearSegmentedColormap.from_list(
-        "my_list", [Color(c1).rgb for c1 in ramp_colors]
-    )
-    return color_ramp
-
-
-import numpy as np
-import traceback
-
-custom_ramp = make_Ramp(["#000000", "#D62728"])
-red = custom_ramp(range(256))[:, :-1] * 255
-
-custom_ramp = make_Ramp(["#000000", "#FF7F0E"])
-orange = custom_ramp(range(256))[:, :-1] * 255
-
-custom_ramp = make_Ramp(["#000000", "#17BECF"])
-blue = custom_ramp(range(256))[:, :-1] * 255
-
-custom_ramp = make_Ramp(["#000000", "#2CA02C"])
-green = custom_ramp(range(256))[:, :-1] * 255
-
-custom_ramp = make_Ramp(["#000000", "#9467BD"])
-purple = custom_ramp(range(256))[:, :-1] * 255
-
-red = red.astype(np.uint8).T
-orange = orange.astype(np.uint8).T
-blue = blue.astype(np.uint8).T
-purple = purple.astype(np.uint8).T
-green = green.astype(np.uint8).T
-
 import os
 from bioio.writers import OmeTiffWriter
-
 from typing import Union
-
+import numpy as np
+import traceback
 import dask
 import open3d as o3d
-import scipy.io as scipyio
 import torch
 from bioio import BioImage
-from skimage import measure
-
+import copy
+import gc
+import shutil
+import matplotlib.pyplot as plt
+import tqdm
+import matplotlib.patches as patches
+import tifffile
+import torch.nn.functional as F
+from skimage import morphology
 
 try:
     from skimage import filters
 except ImportError:
     from skimage import filter as filters
-
-import copy
-import gc
-import shutil
-
-import dask.array as da
-import matplotlib.pyplot as plt
-import pandas as pd
-import SimpleITK as sitk
-import tqdm
-from skimage import morphology
-
-pd.set_option("display.width", 10000)
-
-import matplotlib.patches as patches
-import tifffile
-import torch.nn.functional as F
-
-
-def define_registration_params(
-    use_exist_reg: bool = False,
-    require_reg_finetune: bool = True,
-    axial_downsample: int = 1,
-    lateral_downsample: int = 2,
-    skip_refine_registration: bool = False,
-):
-    kwargs = locals()
-    return kwargs
-
 
 from leonardo_toolset.fusion.blobs_dog import DoG
 from leonardo_toolset.fusion.fuse_illu import FUSE_illu
@@ -104,6 +45,53 @@ from leonardo_toolset.fusion.utils import (
     coarseRegistrationZX,
 )
 
+import pandas as pd
+
+pd.set_option("display.width", 10000)
+
+
+def make_Ramp(ramp_colors):
+    from colour import Color
+    from matplotlib.colors import LinearSegmentedColormap
+
+    color_ramp = LinearSegmentedColormap.from_list(
+        "my_list", [Color(c1).rgb for c1 in ramp_colors]
+    )
+    return color_ramp
+
+
+custom_ramp = make_Ramp(["#000000", "#D62728"])
+red = custom_ramp(range(256))[:, :-1] * 255
+
+custom_ramp = make_Ramp(["#000000", "#FF7F0E"])
+orange = custom_ramp(range(256))[:, :-1] * 255
+
+custom_ramp = make_Ramp(["#000000", "#17BECF"])
+blue = custom_ramp(range(256))[:, :-1] * 255
+
+custom_ramp = make_Ramp(["#000000", "#2CA02C"])
+green = custom_ramp(range(256))[:, :-1] * 255
+
+custom_ramp = make_Ramp(["#000000", "#9467BD"])
+purple = custom_ramp(range(256))[:, :-1] * 255
+
+red = red.astype(np.uint8).T
+orange = orange.astype(np.uint8).T
+blue = blue.astype(np.uint8).T
+purple = purple.astype(np.uint8).T
+green = green.astype(np.uint8).T
+
+
+def define_registration_params(
+    use_exist_reg: bool = False,
+    require_reg_finetune: bool = True,
+    axial_downsample: int = 1,
+    lateral_downsample: int = 2,
+    skip_refine_registration: bool = False,
+):
+    kwargs = locals()
+    return kwargs
+
 
 class FUSE_det:
     def __init__(
@@ -120,7 +108,9 @@ class FUSE_det:
         registration_params=None,
     ):
         if device is None:
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            device = torch.device(
+                "cuda" if torch.cuda.is_available() else "cpu"
+            )
         self.train_params = {
             "require_precropping": require_precropping,
             "precropping_params": precropping_params,
@@ -371,9 +361,9 @@ class FUSE_det:
             )
         else:
             try:
-                if xy_downsample_ratio == None:
+                if xy_downsample_ratio is None:
                     xy_downsample_ratio = 1
-                if z_downsample_ratio == None:
+                if z_downsample_ratio is None:
                     z_downsample_ratio = 1
                 print("Save inputs as .dat files temporarily...")
 
@@ -447,7 +437,7 @@ class FUSE_det:
                     save_folder,
                     ventral_det_data,
                     dorsal_det_data,
-                    True if left_right == False else False,
+                    True if left_right is False else False,
                     yaml_path,
                     z_downsample_ratio,
                     xy_downsample_ratio,
@@ -464,6 +454,7 @@ class FUSE_det:
 
             except Exception as e:
                 traceback.print_exc()
+                print(e)
             finally:
                 torch.cuda.empty_cache()
                 try:
@@ -473,6 +464,7 @@ class FUSE_det:
                         os.remove(os.path.splitext(f)[0] + ".dat")
                 except Exception as e:
                     traceback.print_exc()
+                    print(e)
 
         return result
 

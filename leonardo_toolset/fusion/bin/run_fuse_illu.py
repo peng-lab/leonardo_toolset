@@ -10,7 +10,6 @@ import argparse
 import logging
 import sys
 import traceback
-from pathlib import Path
 
 from leonardo_toolset.fusion import FUSE_illu, get_module_version
 
@@ -233,7 +232,7 @@ def main():
             args.require_segmentation,
             args.device,
         )
-        out = exe.train(
+        _ = exe.train(
             args.data_path,
             args.sample_name,
             args.top_illu_data,

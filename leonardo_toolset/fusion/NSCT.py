@@ -1,9 +1,5 @@
-import copy
 import math
-import os
-
 import numpy as np
-import scipy.io as scipyio
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -39,7 +35,7 @@ class NSCTdec(nn.Module):
 
         f1, f2 = self.parafilters(h1, h2)
 
-        for l in range(3, max(levels) + 1):
+        for l in range(3, max(levels) + 1):  # noqa: E741
             level_0, level_1 = [], []
             for k in range(1, 2 ** (l - 2) + 1):
                 slk = 2 * math.floor((k - 1) / 2) - 2 ** (l - 3) + 1
@@ -126,7 +122,7 @@ class NSCTdec(nn.Module):
         return y1, y2
 
     def resampz(self, x, sampleType):
-        shift, sx = 1, x.shape
+        shift, sx = 1, x.shape  # noqa: F841
         if (sampleType == 1) or (sampleType == 2):
             y = np.zeros((sx[0] + sx[1] - 1, sx[1]))
             shift1 = (
@@ -143,7 +139,7 @@ class NSCTdec(nn.Module):
                 start = start + 1
             while np.sum(np.abs(y[finish, :])) == 0:
                 finish = finish - 1
-            y = y[start : finish + 1, :]
+            y = y[start: finish + 1, :]
         else:
             y = np.zeros((sx[0], sx[1] + sx[0] - 1))
             shift2 = (
@@ -160,7 +156,7 @@ class NSCTdec(nn.Module):
                 start = start + 1
             while np.sum(np.abs(y[:, finish])) == 0:
                 finish = finish - 1
-            y = y[:, start : finish + 1]
+            y = y[:, start: finish + 1]
         return y
 
     def modulate2(self, x, modulateType):
@@ -238,11 +234,11 @@ class NSCTdec(nn.Module):
                 ),
                 1,
             )
-            for l in range(3, clevels + 1):
+            for ll in range(3, clevels + 1):
                 y = torch.cat(
                     (
-                        self.conv_perext(y, getattr(self, f"level_{l-1}_0")),
-                        self.conv_perext(y, getattr(self, f"level_{l-1}_1")),
+                        self.conv_perext(y, getattr(self, f"level_{ll-1}_0")),
+                        self.conv_perext(y, getattr(self, f"level_{ll-1}_1")),
                     ),
                     1,
                 )
@@ -330,7 +326,7 @@ class NSCTdec(nn.Module):
     def extractFeatures(self, x):
         b, _, m, n = x[0].size()
         f = torch.zeros(b, 1, m, n).to(self.device)
-        L = sum([2**l for l in self.levels])
+        L = sum([2**ll for ll in self.levels])
         for d in x:
             f += torch.sum(d.abs(), dim=1, keepdim=True)
         return f / L

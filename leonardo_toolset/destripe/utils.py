@@ -1,7 +1,9 @@
 from typing import List
-
 import numpy as np
 import scipy
+import copy
+import math
+import torch
 
 try:
     import haiku as hk
@@ -12,11 +14,6 @@ try:
 except Exception as e:
     print(f"Error: {e}. Proceed without jax")
     pass
-
-import copy
-import math
-
-import torch
 
 
 def transform_cmplx_model(
@@ -44,7 +41,7 @@ def crop_center(
     y, x = img.shape[-2:]
     startx = x // 2 - cropx // 2
     starty = y // 2 - cropy // 2
-    return img[..., starty : starty + cropy, startx : startx + cropx]
+    return img[..., starty: starty + cropy, startx: startx + cropx]
 
 
 def global_correction(
@@ -207,7 +204,7 @@ def WedgeMask(
     tmp = Xv**2 + Yv**2
     tmp = dep_package.hstack((dep_package.flip(tmp[:, 1:], 1), tmp))
     tmp = dep_package.vstack((dep_package.flip(tmp[1:, :], 0), tmp))
-    b = tmp[md - md // 2 : md + md // 2 + 1, nd - nd // 2 : nd + nd // 2 + 1]
+    b = tmp[md - md // 2: md + md // 2 + 1, nd - nd // 2: nd + nd // 2 + 1]
     return crop_center(
         (
             ((a < math.pi / 180 * (90 - deg)).astype(dep_package.int32))

@@ -13,10 +13,10 @@ class GuidedFilterLoss:
         self.r, self.eps = r, eps
 
     def diff_x(self, input, r):
-        return input[:, :, 2 * r + 1 :, :] - input[:, :, : -2 * r - 1, :]
+        return input[:, :, 2 * r + 1:, :] - input[:, :, : -2 * r - 1, :]
 
     def diff_y(self, input, r):
-        return input[:, :, :, 2 * r + 1 :] - input[:, :, :, : -2 * r - 1]
+        return input[:, :, :, 2 * r + 1:] - input[:, :, :, : -2 * r - 1]
 
     @partial(jit, static_argnums=(0,))
     def boxfilter(self, input):
@@ -313,17 +313,17 @@ class Loss_jax:
                 math.cos(-A / 180 * math.pi + math.pi / 2),
                 math.sin(-A / 180 * math.pi + math.pi / 2),
             )
-            DGaussxx = DGaussxx.at[i : i + 1].set(
+            DGaussxx = DGaussxx.at[i: i + 1].set(
                 jnp.fft.ifft2(
                     (a * gxFFT2 + b * gyFFT2) * (a * gxFFT2 + b * gyFFT2), axes=(-2, -1)
                 ).real[None, None, :KernelSize, :KernelSize]
             )
-            DGaussyy = DGaussyy.at[i : i + 1].set(
+            DGaussyy = DGaussyy.at[i: i + 1].set(
                 jnp.fft.ifft2(
                     (c * gxFFT2 + d * gyFFT2) * (c * gxFFT2 + d * gyFFT2), axes=(-2, -1)
                 ).real[None, None, :KernelSize, :KernelSize]
             )
-            DGaussxy = DGaussxy.at[i : i + 1].set(
+            DGaussxy = DGaussxy.at[i: i + 1].set(
                 jnp.fft.ifft2(
                     (c * gxFFT2 + d * gyFFT2) * (a * gxFFT2 + b * gyFFT2), axes=(-2, -1)
                 ).real[None, None, :KernelSize, :KernelSize]

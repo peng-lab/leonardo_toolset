@@ -16,21 +16,13 @@ from jinja2 import Template
 import yaml
 import os
 from os.path import splitext
-from datetime import datetime
 from pathlib import Path
 from pathlib import PurePosixPath
-
 import gc
 import tifffile
-import yaml
-import os
 from bioio.writers import OmeTiffWriter
-
-import yaml
-import os
 from collections import OrderedDict
 from bioio import BioImage
-import dask.array as da
 import re
 from leonardo_toolset.fusion.NSCT import NSCTdec
 import ants
@@ -82,7 +74,7 @@ def fusionResult_VD(
     for ii in tqdm.tqdm(
         range(GFr[0] // 2, len(l_temp) - GFr[0] // 2), desc="fusion: "
     ):  # topVol.shape[0]
-        l_s = l_temp[ii - GFr[0] // 2 : ii + GFr[0] // 2 + 1]
+        l_s = l_temp[ii - GFr[0] // 2: ii + GFr[0] // 2 + 1]
 
         bottomMask = torch.from_numpy(boundary[:, l_s, :, :]).to(device).to(torch.float)
         topMask = torch.from_numpy((~boundary[:, l_s, :, :])).to(device).to(torch.float)
@@ -268,9 +260,9 @@ def fusionResultFour(
     ) as pbar:
         for i in range((_mask_small.shape[1] - 1) // 10 + 1):
             for j in range((_mask_small.shape[2] - 1) // 10 + 1):
-                _mask_small[:, i * 10 : (i + 1) * 10, j * 10 : (j + 1) * 10] = (
+                _mask_small[:, i * 10: (i + 1) * 10, j * 10: (j + 1) * 10] = (
                     morphology.remove_small_objects(
-                        _mask_small[:, i * 10 : (i + 1) * 10, j * 10 : (j + 1) * 10],
+                        _mask_small[:, i * 10: (i + 1) * 10, j * 10: (j + 1) * 10],
                         5,
                     )
                 )
@@ -286,9 +278,9 @@ def fusionResultFour(
     ) as pbar:
         for i in range((_mask_small.shape[1] - 1) // 10 + 1):
             for j in range((_mask_small.shape[2] - 1) // 10 + 1):
-                _mask_small[:, i * 10 : (i + 1) * 10, j * 10 : (j + 1) * 10] = (
+                _mask_small[:, i * 10: (i + 1) * 10, j * 10: (j + 1) * 10] = (
                     morphology.remove_small_holes(
-                        _mask_small[:, i * 10 : (i + 1) * 10, j * 10 : (j + 1) * 10],
+                        _mask_small[:, i * 10: (i + 1) * 10, j * 10: (j + 1) * 10],
                         5,
                     )
                 )
@@ -302,7 +294,7 @@ def fusionResultFour(
     s_f = illu_front.shape[0]
     s_b = illu_back.shape[0]
     if s_f < s_b:
-        illu_front = np.concatenate((illu_front, illu_back[-(s_b - s_f) :, :, :]), 0)
+        illu_front = np.concatenate((illu_front, illu_back[-(s_b - s_f):, :, :]), 0)
 
     l_temp = np.concatenate(
         (
@@ -314,7 +306,7 @@ def fusionResultFour(
     )
 
     for ii in tqdm.tqdm(range(2, len(l_temp) - 2), desc="fusion: "):  # topVol.shape[0]
-        l_s = l_temp[ii - GFr[0] // 2 : ii + GFr[0] // 2 + 1]
+        l_s = l_temp[ii - GFr[0] // 2: ii + GFr[0] // 2 + 1]
 
         bottomMask = 1 - boundary_mask[None, l_s, :, :]
         topMask = boundary_mask[None, l_s, :, :]
@@ -502,7 +494,7 @@ def volumeTranslate_compose(
         )
         coor_translated[0, ...] = coor_translated[0, ...] - minn
 
-        z_list_small = z_list[minn : maxx + 1]
+        z_list_small = z_list[minn: maxx + 1]
 
         ind = np.where(z_list_small != -1)[0]
 
@@ -545,8 +537,8 @@ def volumeTranslate_compose(
                 tmp_small = torch.from_numpy(
                     tmp[
                         :,
-                        int(max(bounding_x.min() - 10, 0)) : int(bounding_x.max() + 10),
-                        int(max(bounding_y.min() - 10, 0)) : int(bounding_y.max() + 10),
+                        int(max(bounding_x.min() - 10, 0)): int(bounding_x.max() + 10),
+                        int(max(bounding_y.min() - 10, 0)): int(bounding_y.max() + 10),
                     ].astype(np.float32)
                 ).to(device)
 
@@ -585,7 +577,7 @@ def volumeTranslate_compose(
     if save_path is not None:
         print("save...")
         if ".tif" == os.path.splitext(save_path)[1]:
-            if large_vol == False:
+            if large_vol is False:
                 tifffile.imwrite(save_path, commonData)
             else:
                 save_path_dat = os.path.splitext(save_path)[0] + ".dat"
@@ -734,9 +726,9 @@ def fineReg(
     moving_view_mask = np.ones(respective_view_uint8.shape, dtype=bool)
     if AffineMapZXY[0] > 0:
         moving_view_mask[: int(AffineMapZXY[0] / z_spacing)] = 0
-        respective_view_mask[-int(AffineMapZXY[0] / z_spacing) :] = 0
+        respective_view_mask[-int(AffineMapZXY[0] / z_spacing):] = 0
     if AffineMapZXY[0] < 0:
-        moving_view_mask[int(AffineMapZXY[0] / z_spacing) :] = 0
+        moving_view_mask[int(AffineMapZXY[0] / z_spacing):] = 0
         respective_view_mask[: -int(AffineMapZXY[0] / z_spacing)] = 0
     moving_view_mask *= moving_view_uint8 > 0
     respective_view_mask *= respective_view_uint8 > 0
@@ -773,14 +765,14 @@ def fineReg(
     print("to ANTS...")
     staticANTS = ants.from_numpy(
         respective_view_uint8[
-            s : e : registration_params["axial_downsample"],
+            s: e: registration_params["axial_downsample"],
             :: registration_params["lateral_downsample"],
             :: registration_params["lateral_downsample"],
         ]
     )
     movingANTS = ants.from_numpy(
         moving_view_uint8[
-            s : e : registration_params["axial_downsample"],
+            s: e: registration_params["axial_downsample"],
             :: registration_params["lateral_downsample"],
             :: registration_params["lateral_downsample"],
         ]
@@ -788,21 +780,21 @@ def fineReg(
 
     staticANTS = ants.from_numpy(
         respective_view_uint8[
-            s : e : registration_params["axial_downsample"],
+            s: e: registration_params["axial_downsample"],
             :: registration_params["lateral_downsample"],
             :: registration_params["lateral_downsample"],
         ]
     )
     respective_view_mask_ants = ants.from_numpy(
         respective_view_mask[
-            s : e : registration_params["axial_downsample"],
+            s: e: registration_params["axial_downsample"],
             :: registration_params["lateral_downsample"],
             :: registration_params["lateral_downsample"],
         ]
     )
     moving_view_mask_ants = ants.from_numpy(
         moving_view_mask[
-            s : e : registration_params["axial_downsample"],
+            s: e: registration_params["axial_downsample"],
             :: registration_params["lateral_downsample"],
             :: registration_params["lateral_downsample"],
         ]
@@ -971,8 +963,6 @@ def coarseRegistrationZX(
         AffineMapZXY[1],
     ]
     numpy_affine_to_ants_transform(mass_translation_mat, dimension=2)
-
-    from skimage.transform import rescale
 
     front = ants.from_numpy(front.astype(np.float32))
     back = ants.from_numpy(back.astype(np.float32))
@@ -1210,7 +1200,7 @@ def parse_yaml_illu(
         save_folder,
         file_name,
     )
-    output_dict = render_yaml_template(
+    _ = render_yaml_template(
         get_template_path("fuse_illu.yaml"),
         context,
         output_path=yaml_path,
@@ -1412,7 +1402,7 @@ def parse_yaml_det(
         context["top_dorsal_reg"] = context["top_dorsal_folder"] + "_reg.tif"
         context["bottom_dorsal_reg"] = context["bottom_dorsal_folder"] + "_reg.tif"
     elif (ventral_det_data is not None) and ((dorsal_det_data is not None)):
-        if (xy_downsample_ratio == None) and (z_downsample_ratio == None):
+        if (xy_downsample_ratio is None) and (z_downsample_ratio is None):
             template_name = "fuse_2_det.yaml"
         else:
             template_name = "fuse_2_high_res_det.yaml"
@@ -1463,11 +1453,11 @@ def parse_yaml_det(
     context["sparse_sample"] = sparse_sample
     context["z_spacing"] = z_spacing if require_registration else "n.a."
     context["xy_spacing"] = xy_spacing if require_registration else "n.a."
-    if xy_downsample_ratio == None:
+    if xy_downsample_ratio is None:
         context["xy_downsample_ratio"] = "n.a."
     else:
         context["xy_downsample_ratio"] = xy_downsample_ratio
-    if z_downsample_ratio == None:
+    if z_downsample_ratio is None:
         context["z_downsample_ratio"] = "n.a."
     else:
         context["z_downsample_ratio"] = z_downsample_ratio
@@ -1477,7 +1467,7 @@ def parse_yaml_det(
         save_folder,
         file_name,
     )
-    output_dict = render_yaml_template(
+    _ = render_yaml_template(
         get_template_path(template_name),
         context,
         output_path=yaml_path,
@@ -1502,7 +1492,7 @@ def fusion_perslice(
     result[num] = 1
     result = result / result.sum(0, keepdim=True)
     minn, maxx = x.min(), x.max()
-    y_seg = x[:, c // 2 : c // 2 + 1, :, :] * result
+    y_seg = x[:, c // 2: c // 2 + 1, :, :] * result
     y = torch.clip(y_seg.sum(0), minn, maxx)
 
     return (
@@ -1517,16 +1507,16 @@ class BoxFilter(nn.Module):
         self.r = r
 
     def diff_x(self, input, r):
-        left = input[:, :, r : 2 * r + 1]
-        middle = input[:, :, 2 * r + 1 :] - input[:, :, : -2 * r - 1]
-        right = input[:, :, -1:] - input[:, :, -2 * r - 1 : -r - 1]
+        left = input[:, :, r: 2 * r + 1]
+        middle = input[:, :, 2 * r + 1:] - input[:, :, : -2 * r - 1]
+        right = input[:, :, -1:] - input[:, :, -2 * r - 1: -r - 1]
         output = torch.cat([left, middle, right], dim=2)
         return output
 
     def diff_y(self, input, r):
-        left = input[:, :, :, r : 2 * r + 1]
-        middle = input[:, :, :, 2 * r + 1 :] - input[:, :, :, : -2 * r - 1]
-        right = input[:, :, :, -1:] - input[:, :, :, -2 * r - 1 : -r - 1]
+        left = input[:, :, :, r: 2 * r + 1]
+        middle = input[:, :, :, 2 * r + 1:] - input[:, :, :, : -2 * r - 1]
+        right = input[:, :, :, -1:] - input[:, :, :, -2 * r - 1: -r - 1]
         output = torch.cat([left, middle, right], dim=3)
         return output
 
@@ -1562,7 +1552,7 @@ class GuidedFilter(nn.Module):
         mean_A = self.boxfilter(A) / N
         mean_b = self.boxfilter(b) / N
         return (
-            mean_A * x[:, c_x // 2 : c_x // 2 + 1, :, :] + mean_b
+            mean_A * x[:, c_x // 2: c_x // 2 + 1, :, :] + mean_b
         ) / 0.001, mean_y_tmp
 
 
@@ -1575,7 +1565,7 @@ def extendBoundary2(
         p = np.where(tmp != 0)[0]
         if len(p) != 0:
             p0, p1 = p[0], p[-1]
-            valid_slice = tmp[p0 : p1 + 1]
+            valid_slice = tmp[p0: p1 + 1]
             g_left = [0] * window_size * 2 + [
                 valid_slice[1] - valid_slice[0]
             ] * window_size * 2
@@ -1585,7 +1575,7 @@ def extendBoundary2(
                     * signal.savgol_filter(g_left, window_size, 1)[
                         window_size
                         + window_size // 2
-                        + 1 : 2 * window_size
+                        + 1: 2 * window_size
                         + window_size // 2
                     ],
                     valid_slice[0],
@@ -1594,7 +1584,7 @@ def extendBoundary2(
             if p0 + 1 - len(left_ext) > 0:
                 left_ext = np.pad(left_ext, [(p0 + 1 - len(left_ext), 0)], mode="edge")
             else:
-                left_ext = left_ext[-(p0 + 1) :]
+                left_ext = left_ext[-(p0 + 1):]
             boundary[i, : p0 + 1] = left_ext
             g_right = [valid_slice[-1] - valid_slice[-2]] * window_size * 2 + [
                 0
@@ -1606,7 +1596,7 @@ def extendBoundary2(
                         signal.savgol_filter(g_right, window_size, 1)[
                             window_size
                             + window_size // 2
-                            + 1 : 2 * window_size
+                            + 1: 2 * window_size
                             + window_size // 2
                         ],
                     )
@@ -1836,20 +1826,20 @@ def EM2DPlus(
             mode="reflect",
         )[0, 0]
         for ind, i in enumerate(range(w1 // 2, s + w1 // 2)):
-            xs = x_pad[i - w1 // 2 : i + w1 // 2 + 1, :]
-            min_boundary_s = min_boundary_pad[i - w1 // 2 : i + w1 // 2 + 1, :]
-            max_boundary_s = max_boundary_pad[i - w1 // 2 : i + w1 // 2 + 1, :]
+            xs = x_pad[i - w1 // 2: i + w1 // 2 + 1, :]
+            min_boundary_s = min_boundary_pad[i - w1 // 2: i + w1 // 2 + 1, :]
+            max_boundary_s = max_boundary_pad[i - w1 // 2: i + w1 // 2 + 1, :]
             xs_unfold = xs.unfold(0, w1, 1).unfold(1, w2, 1)
-            mask1 = (xs_unfold >= min_boundary[ind : ind + 1, :, None, None]) * (
-                xs_unfold <= max_boundary[ind : ind + 1, :, None, None]
+            mask1 = (xs_unfold >= min_boundary[ind: ind + 1, :, None, None]) * (
+                xs_unfold <= max_boundary[ind: ind + 1, :, None, None]
             )
             min_boundary_s_unfold = min_boundary_s.unfold(0, w1, 1).unfold(1, w2, 1)
             max_boundary_s_unfold = max_boundary_s.unfold(0, w1, 1).unfold(1, w2, 1)
-            mask2 = (x[ind : ind + 1, :, None, None] >= min_boundary_s_unfold) * (
-                x[ind : ind + 1, :, None, None] <= max_boundary_s_unfold
+            mask2 = (x[ind: ind + 1, :, None, None] >= min_boundary_s_unfold) * (
+                x[ind: ind + 1, :, None, None] <= max_boundary_s_unfold
             )
             mask = mask1 * mask2
-            mask[validFor2D[ind : ind + 1, :], :, :] = 1
+            mask[validFor2D[ind: ind + 1, :], :, :] = 1
             mask[:, :, w1 // 2, w2 // 2] = 1
             K = mask * kernel_high
             y[i - w1 // 2] = (K * xs_unfold).sum((-2, -1)) / K.sum((-2, -1))
@@ -1866,7 +1856,7 @@ def EM2DPlus(
                     * torch.ones((1, n), dtype=torch.int).to(device)
                 )
                 median_result = xs_unfold_sort[dim0, dim1, med_ind]
-                y[i - w1 // 2 : i - w1 // 2 + 1, :][s_m] = median_result[s_m]
+                y[i - w1 // 2: i - w1 // 2 + 1, :][s_m] = median_result[s_m]
         return y
 
     def init(x, validFor2D, bg_mask, min_boundary, max_boundary):
@@ -1887,10 +1877,10 @@ def EM2DPlus(
             if len(t) > 0:
                 a = t[0]
                 b = t[-1]
-                x_pad_cpu[i, a : b + w2] = np.pad(
-                    x_cpu[i][a : b + 1], (w2 // 2, w2 // 2), mode="reflect"
+                x_pad_cpu[i, a: b + w2] = np.pad(
+                    x_cpu[i][a: b + 1], (w2 // 2, w2 // 2), mode="reflect"
                 )
-        x = torch.from_numpy(x_pad_cpu[:, w2 // 2 : -w2 // 2 + 1]).to(device)
+        x = torch.from_numpy(x_pad_cpu[:, w2 // 2: -w2 // 2 + 1]).to(device)
         x_pad = F.pad(
             x[None, None], (w2 // 2, w2 // 2, w1 // 2, w1 // 2), mode="reflect"
         )[0, 0]
@@ -1905,8 +1895,8 @@ def EM2DPlus(
             > 0
         )
         for ind, i in enumerate(range(w1 // 2, s + w1 // 2)):
-            xs = x_pad[i - w1 // 2 : i + w1 // 2 + 1, :]
-            validFor2D_s = validFor2D[i - w1 // 2 : i + w1 // 2 + 1, :]
+            xs = x_pad[i - w1 // 2: i + w1 // 2 + 1, :]
+            validFor2D_s = validFor2D[i - w1 // 2: i + w1 // 2 + 1, :]
             xs_unfold = xs.unfold(0, w1, 1).unfold(1, w2, 1)  # .reshape(1, n, -1)
             validFor2D_unfold = validFor2D_s.unfold(0, w1, 1).unfold(1, w2, 1)
             mask = validFor2D_unfold
@@ -2089,8 +2079,8 @@ def refineShape(
             for a in aa:
                 for b in bb:
                     if b >= a:
-                        if (D[ii, a : b + 1] == 1).sum() == (b - a + 1):
-                            E[ii, a : b + 1] = 0
+                        if (D[ii, a: b + 1] == 1).sum() == (b - a + 1):
+                            E[ii, a: b + 1] = 0
                             break
 
         Mask = (F - E) == 1  # ((-b1+b2) == -1)+((b1+b2) == 2)
@@ -2102,13 +2092,13 @@ def refineShape(
         for ind, p in enumerate(props):
             bbox = p.bbox
             if (bbox[3] - bbox[1]) / (bbox[2] - bbox[0]) < 2:
-                first[bbox[1] : bbox[3]] = np.minimum(
+                first[bbox[1]: bbox[3]] = np.minimum(
                     np.linspace(first[bbox[1]], first[bbox[3]], bbox[3] - bbox[1]),
-                    first[bbox[1] : bbox[3]],
+                    first[bbox[1]: bbox[3]],
                 )
-                last[bbox[1] : bbox[3]] = np.maximum(
+                last[bbox[1]: bbox[3]] = np.maximum(
                     np.linspace(last[bbox[1]], last[bbox[3]], bbox[3] - bbox[1]),
-                    last[bbox[1] : bbox[3]],
+                    last[bbox[1]: bbox[3]],
                 )
                 mm = np.isin(testa2, ind + 1)
                 mm[:, mm.sum(0) < r] = 0
@@ -2265,10 +2255,10 @@ def refineShape(
         ) as pbar:
             for i in range((_mask_small.shape[1] - 1) // 10 + 1):
                 for j in range((_mask_small.shape[2] - 1) // 10 + 1):
-                    _mask_small[:, i * 10 : (i + 1) * 10, j * 10 : (j + 1) * 10] = (
+                    _mask_small[:, i * 10: (i + 1) * 10, j * 10: (j + 1) * 10] = (
                         morphology.remove_small_objects(
                             _mask_small[
-                                :, i * 10 : (i + 1) * 10, j * 10 : (j + 1) * 10
+                                :, i * 10: (i + 1) * 10, j * 10: (j + 1) * 10
                             ],
                             5,
                         )
@@ -2285,10 +2275,10 @@ def refineShape(
         ) as pbar:
             for i in range((_mask_small.shape[1] - 1) // 10 + 1):
                 for j in range((_mask_small.shape[2] - 1) // 10 + 1):
-                    _mask_small[:, i * 10 : (i + 1) * 10, j * 10 : (j + 1) * 10] = (
+                    _mask_small[:, i * 10: (i + 1) * 10, j * 10: (j + 1) * 10] = (
                         morphology.remove_small_holes(
                             _mask_small[
-                                :, i * 10 : (i + 1) * 10, j * 10 : (j + 1) * 10
+                                :, i * 10: (i + 1) * 10, j * 10: (j + 1) * 10
                             ],
                             5,
                         )
