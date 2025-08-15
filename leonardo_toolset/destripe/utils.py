@@ -14,6 +14,106 @@ try:
 except Exception as e:
     print(f"Error: {e}. Proceed without jax")
     pass
+import os
+import tqdm
+import tifffile
+import gc
+
+
+def finalize_save(result_npy, done_npy, save_path):
+
+    result_mm = np.lib.format.open_memmap(result_npy, mode="r")
+    done_mm = np.lib.format.open_memmap(done_npy, mode="r")
+
+    done = np.asarray(done_mm, dtype=bool)
+    k_done = int(done.sum())
+
+    if k_done == 0:
+        return
+
+    view = result_mm[:k_done]
+    arr = np.asarray(view)
+    tifffile.imwrite(
+        save_path,
+        arr,
+        photometric="minisblack",
+    )
+
+    del result_mm, done_mm
+    gc.collect()
+
+    for p in (result_npy, done_npy):
+        try:
+            os.remove(p)
+        except FileNotFoundError:
+            pass
+        except PermissionError:
+            try:
+                gc.collect()
+                os.remove(p)
+            except Exception:
+                pass
+
+
+def open_or_init_mm(save_dir, stem, z, m, n):
+    mm_path = os.path.join(save_dir, f"{stem}__work.npy")
+    done_path = os.path.join(save_dir, f"{stem}__done.npy")
+
+    for path in (mm_path, done_path):
+        if os.path.exists(path):
+            os.remove(path)
+
+    result_mm = np.lib.format.open_memmap(
+        mm_path, mode="w+", dtype=np.uint16, shape=(z, m, n)
+    )
+    done_mm = np.lib.format.open_memmap(
+        done_path, mode="w+", dtype=np.uint8, shape=(z,)
+    )
+
+    done_mm[:] = 0
+
+    result_mm.flush()
+    done_mm.flush()
+
+    return result_mm, done_mm
+
+
+def ensure_abs_tif(save_path):
+    ext = os.path.splitext(save_path)[1].lower()
+    if ext not in (".tif", ".tiff"):
+        raise ValueError("save_path must end with .tif/.tiff")
+    parent_dir = os.path.dirname(save_path)
+    if not os.path.isdir(parent_dir):
+        raise FileNotFoundError(f"Parent directory does not exist: {parent_dir}")
+    stem = os.path.splitext(os.path.basename(save_path))[0]
+    return parent_dir, stem
+
+
+def save_memmap_from_images(
+    all_images,
+    save_path,
+):
+    all_images = [os.path.join(all_images, f) for f in os.listdir(all_images)]
+    all_images = sorted(all_images)
+    sample_slice = np.load(all_images[0])["mask"]
+    Z = len(all_images)
+    S, Y, X = sample_slice.shape
+    dtype = sample_slice.dtype
+
+    if os.path.exists(save_path):
+        os.remove(save_path)
+
+    mm = np.lib.format.open_memmap(
+        save_path, mode="w+", dtype=dtype, shape=(Z, S, Y, X)
+    )
+
+    for i in tqdm.tqdm(
+        range(Z), desc="saving fusion_mask to memmap temporarily: ", leave=False
+    ):
+        mm[i] = np.load(all_images[i])["mask"]
+    mm.flush()
+
+    return mm
 
 
 def transform_cmplx_model(
@@ -47,12 +147,28 @@ def crop_center(
 def global_correction(
     mean,
     result,
+    MIN,
+    MAX,
 ):
+    _min = MIN.min()
+    _max = MAX.max()
     means = scipy.signal.savgol_filter(mean, min(21, len(mean)), 1)
-    MIN, MAX = result.min(), result.max()
-    result = result - mean[:, None, None] + means[:, None, None]
-    result = (result - result.min()) / (result.max() - result.min()) * (MAX - MIN) + MIN
-    return np.clip(result, 0, 65535).astype(np.uint16)
+
+    MIN = MIN - mean + means
+    MAX = MAX - mean + means
+
+    _min_new = MIN.min()
+    _max_new = MAX.max()
+
+    for i in tqdm.tqdm(range(result.shape[0]), desc="global correction: ", leave=False):
+        result[i] = np.clip(
+            (np.asarray(result[i]) - mean[i] + means[i] + 0.0 - _min_new)
+            / (_max_new - _min_new)
+            * (_max - _min),
+            0,
+            65535,
+        ).astype(np.uint16)
+    getattr(result, "flush", lambda: None)()
 
 
 def destripe_train_params(

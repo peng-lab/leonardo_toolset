@@ -507,9 +507,15 @@ def linear_propagation(
 def post_process_module(
     hX,
     result_0,
+    result_gnn,
     angle_offset_individual,
     illu_orient,
+    allow_stripe_deviation=False,
     fusion_mask=None,
+    device=None,
+    non_positive=False,
+    r=10,
+    n_epochs=1000,
 ):
     if hX.shape[1] > 1:
         assert fusion_mask is not None, print("fusion_mask is missing.")
@@ -517,19 +523,7 @@ def post_process_module(
             "angle_offset_individual must be of length 2."
         )
         fusion_mask = fusion_mask[:, :, : hX.shape[-2], : hX.shape[-1]]
-        # fusion_mask_naive_0 = np.arange(hX.shape[-2])[:, None] <= (
-        #     fusion_boundary.max(0)[None, :] + 59
-        # )
-        # fusion_mask_naive_1 = np.flip(
-        #     np.arange(hX.shape[-2])[:, None] >= (fusion_boundary.min(0)[None, :] - 59),
-        #     -2,
-        # )
-        # fusion_mask_naive = np.stack((fusion_mask_naive_0, fusion_mask_naive_1))[
-        #     :, : hX.shape[-2], : hX.shape[-1]
-        # ][None]
-        # fusion_mask_naive = np.pad(
-        #     fusion_mask_naive, ((0, 0), (0, 0), (259, 259), (0, 0)), "edge"
-        # )
+
         fusion_mask = np.pad(fusion_mask, ((0, 0), (0, 0), (259, 259), (0, 0)), "edge")
     hX = np.pad(hX, ((0, 0), (0, 0), (259, 259), (0, 0)), "reflect")
     result_0 = np.pad(result_0, ((0, 0), (0, 0), (259, 259), (0, 0)), "reflect")

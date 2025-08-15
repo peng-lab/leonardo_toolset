@@ -64,7 +64,7 @@ class Args(argparse.Namespace):
         p.add_argument(
             "--require_precropping",
             type=bool_args,
-            default="True",
+            default=True,
         )
 
         p.add_argument(
@@ -107,35 +107,29 @@ class Args(argparse.Namespace):
         p.add_argument(
             "--require_segmentation",
             type=bool_args,
-            default="True",
+            default=True,
         )
 
         p.add_argument(
             "--skip_illuFusion",
             type=bool_args,
-            default="True",
-        )
-
-        p.add_argument(
-            "--destripe_preceded",
-            type=bool_args,
-            default="False",
-        )
-
-        p.add_argument(
-            "--destripe_params",
-            action="store",
-            dest="destripe_params",
-            default=None,
-            type=dict,
+            default=True,
         )
 
         p.add_argument(
             "--device",
             action="store",
             dest="device",
-            default="cuda",
+            default=None,
             type=str,
+        )
+
+        p.add_argument(
+            "--registration_params",
+            action="store",
+            dest="registration_params",
+            default=None,
+            type=dict,
         )
 
         p.add_argument(
@@ -164,16 +158,9 @@ class Args(argparse.Namespace):
         )
 
         p.add_argument(
-            "--sample_name",
-            action="store",
-            dest="sample_name",
-            type=str,
-        )
-
-        p.add_argument(
             "--sparse_sample",
             type=bool_args,
-            default="False",
+            default=False,
         )
 
         p.add_argument(
@@ -239,6 +226,22 @@ class Args(argparse.Namespace):
         )
 
         p.add_argument(
+            "--ventral_det_data",
+            action="store",
+            dest="ventral_det_data",
+            default=None,
+            type=str,
+        )
+
+        p.add_argument(
+            "--dorsal_det_data",
+            action="store",
+            dest="dorsal_det_data",
+            default=None,
+            type=str,
+        )
+
+        p.add_argument(
             "--save_path",
             action="store",
             dest="save_path",
@@ -254,7 +257,7 @@ class Args(argparse.Namespace):
         p.add_argument(
             "--save_separate_results",
             type=bool_args,
-            default="False",
+            default=False,
         )
 
         p.add_argument(
@@ -271,6 +274,38 @@ class Args(argparse.Namespace):
             dest="xy_spacing",
             default=None,
             type=float,
+        )
+
+        p.add_argument(
+            "--left_right",
+            action="store",
+            dest="left_right",
+            default=None,
+            type=bool,
+        )
+
+        p.add_argument(
+            "--xy_downsample_ratio",
+            action="store",
+            dest="xy_downsample_ratio",
+            default=None,
+            type=int,
+        )
+
+        p.add_argument(
+            "--z_downsample_ratio",
+            action="store",
+            dest="z_downsample_ratio",
+            default=None,
+            type=int,
+        )
+
+        p.add_argument(
+            "--display",
+            action="store",
+            dest="display",
+            default="False",
+            type=bool,
         )
 
         p.add_argument(
@@ -299,16 +334,14 @@ def main():
             args.n_epochs,
             args.require_segmentation,
             args.skip_illuFusion,
-            args.destripe_preceded,
-            args.destripe_params,
             args.device,
+            args.registration_params,
         )
         _ = exe.train(
             args.require_registration,
             args.require_flipping_along_illu_for_dorsaldet,
             args.require_flipping_along_det_for_dorsaldet,
             args.data_path,
-            args.sample_name,
             args.sparse_sample,
             args.top_illu_ventral_det_data,
             args.bottom_illu_ventral_det_data,
@@ -318,11 +351,17 @@ def main():
             args.right_illu_ventral_det_data,
             args.left_illu_dorsal_det_data,
             args.right_illu_dorsal_det_data,
+            args.ventral_det_data,
+            args.dorsal_det_data,
             args.save_path,
             args.save_folder,
             args.save_separate_results,
             args.z_spacing,
             args.xy_spacing,
+            args.left_right,
+            args.xy_downsample_ratio,
+            args.z_downsample_ratio,
+            args.display,
         )
 
     except Exception as e:
