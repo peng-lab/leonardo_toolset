@@ -1,108 +1,198 @@
-import torch.nn as nn
-from torch.optim import Adam
 import scipy
 import numpy as np
 import torch
-from leonardo_toolset.destripe.utils import crop_center
-import copy
-from skimage.filters import threshold_otsu
-import tqdm
 import torch.nn.functional as F
+import cv2
+import torch.nn as nn
+from torch.optim import Adam
+from leonardo_toolset.destripe.utils import crop_center
+import tqdm
+from skimage.filters import threshold_otsu
+from leonardo_toolset.destripe.wave_rec import wave_rec
+import copy
 
 
-def generate_seg_mask(Y_raw_full, target):
-    seg_mask = (10**target > threshold_otsu(10**target)) * (
-        10**Y_raw_full < threshold_otsu(10**Y_raw_full)
+def rotate(
+    x,
+    angle,
+    mode="constant",
+    expand=True,
+):
+
+    x = scipy.ndimage.rotate(
+        x.cpu().data.numpy(),
+        angle,
+        axes=(-2, -1),
+        reshape=True,
+        mode=mode,
+    )
+    return torch.from_numpy(x).cuda()
+
+
+def last_nonzero(
+    arr,
+    mask,
+    axis,
+    invalid_val=np.nan,
+):
+    if mask is None:
+        mask = arr != 0
+    if type(mask) is not np.ndarray:
+        mask = mask.cpu().detach().numpy()
+    val = mask.shape[axis] - np.flip(mask, axis=axis).argmax(axis=axis) - 1
+    return np.where(mask.any(axis=axis), val, invalid_val)
+
+
+def first_nonzero(
+    arr,
+    mask,
+    axis,
+    invalid_val=np.nan,
+):
+    if mask is None:
+        mask = arr != 0
+    if type(mask) is not np.ndarray:
+        mask = mask.cpu().detach().numpy()
+    return np.where(mask.any(axis=axis), mask.argmax(axis=axis), invalid_val)
+
+
+def edge_padding_xy(x, rx, ry):
+    x = torch.cat(
+        (x[:, :, 0:1, :].repeat(1, 1, rx, 1), x, x[:, :, -1:, :].repeat(1, 1, rx, 1)),
+        -2,
+    )
+    return torch.cat(
+        (x[:, :, :, 0:1].repeat(1, 1, 1, ry), x, x[:, :, :, -1:].repeat(1, 1, 1, ry)),
+        -1,
     )
 
-    seg_mask = np.asarray(seg_mask)[0, 0]
 
-    return seg_mask[None, None]
+def mask_with_lower_intensity(
+    Y_raw_full,
+    target,
+    thresh_target_exp,
+    thresh_target,
+    thresh_result_0_exp,
+    thresh_result_0,
+):
+    seg_mask = (10**target > thresh_target_exp) * (10**Y_raw_full < thresh_result_0_exp)
+
+    seg = (10**target > thresh_target_exp) + (10**Y_raw_full > thresh_result_0_exp)
+
+    seg_mask_large = F.max_pool2d(
+        seg_mask + 0.0, (1, 49), padding=(0, 24), stride=(1, 1)
+    )
+
+    diff = (seg_mask_large == 1) * (seg_mask == 0)
+    diff = diff * (seg == 0)
+
+    seg_mask_0 = seg_mask + diff
+
+    seg_mask = (target > thresh_target) * (Y_raw_full < thresh_result_0)
+
+    seg = (target > thresh_target) + (Y_raw_full > thresh_result_0)
+
+    seg_mask_large = F.max_pool2d(
+        seg_mask + 0.0, (1, 49), padding=(0, 24), stride=(1, 1)
+    )
+    diff = (seg_mask_large == 1) * (seg_mask == 0)
+    diff = diff * (seg == 0)
+
+    seg_mask_1 = seg_mask + diff
+
+    seg_mask = seg_mask_0 + seg_mask_1
+
+    return seg_mask
+
+
+def fillHole(segMask):
+    h, w = segMask.shape
+    h += 2
+    w += 2
+    _mask = np.pad(segMask, ((1, 1), (1, 1)))
+    im_floodfill = 255 * (_mask.astype(np.uint8)).copy()
+    mask = np.zeros((h + 2, w + 2), dtype=np.uint8)
+    cv2.floodFill(im_floodfill, mask, seedPoint=(0, 0), newVal=255)
+    result = (segMask + (~im_floodfill)[1:-1, 1:-1]).astype(bool)
+    return result
+
+
+def extract_boundary(
+    Y_raw_full,
+    target,
+    thresh_target_exp,
+    thresh_target,
+    thresh_result_0_exp,
+    thresh_result_0,
+    device,
+):
+    seg_mask = (10**target > thresh_target_exp) + (10**Y_raw_full > thresh_result_0_exp)
+    seg_mask = fillHole(seg_mask[0, 0])[None, None]
+    seg_mask = torch.from_numpy(seg_mask).to(device).to(torch.float)
+    seg_mask_large = F.max_pool2d(seg_mask, (1, 49), padding=(0, 24), stride=(1, 1))
+    seg_mask_small = -F.max_pool2d(-seg_mask, (1, 49), padding=(0, 24), stride=(1, 1))
+    mask = (seg_mask_large + seg_mask_small) == 1
+    t = mask.sum(-2, keepdim=True) / torch.clip(seg_mask.sum(-2, keepdim=True), 1) > 0.5
+    mask = mask * t
+
+    seg_mask = (target > thresh_target) + (Y_raw_full > thresh_result_0)
+    seg_mask = fillHole(seg_mask[0, 0])[None, None]
+    seg_mask = torch.from_numpy(seg_mask).to(device).to(torch.float)
+    seg_mask_large = F.max_pool2d(seg_mask, (1, 49), padding=(0, 24), stride=(1, 1))
+    seg_mask_small = -F.max_pool2d(-seg_mask, (1, 49), padding=(0, 24), stride=(1, 1))
+    mask1 = (seg_mask_large + seg_mask_small) == 1
+    t = (
+        mask1.sum(-2, keepdim=True) / torch.clip(seg_mask.sum(-2, keepdim=True), 1)
+        > 0.5
+    )
+    mask1 = mask1 * t
+
+    return mask1 + mask
+
+
+def mask_with_higher_intensity(
+    Y_raw_full,
+    target,
+    thresh_target_exp,
+    thresh_target,
+    thresh_result_0_exp,
+    thresh_result_0,
+):
+    mask1 = (target < thresh_target) * (Y_raw_full > thresh_result_0)
+
+    mask2 = (10**target < thresh_target_exp) * (10**Y_raw_full > thresh_result_0_exp)
+    return mask1 + mask2
 
 
 class stripe_post(nn.Module):
     def __init__(self, m, n):
         super().__init__()
-        self.w = nn.Parameter(torch.ones(m, n))
-        self.w_negative = nn.Parameter(torch.ones(m, n))
+        self.w = nn.Parameter(torch.ones(1, 1, m, n))
         self.softplus = nn.Softplus()
 
-        self.m = m
-        self.n = n
-        self.r = 89
-
-        self.guidedfilterloss = GuidedFilterLoss(49, 1)
-        self.alpha = nn.Parameter(torch.ones(1, 1))
-        self.relu = nn.ELU()
-
-        self.ww = nn.Parameter(torch.ones(m, n))
-        self.decay_col = nn.Parameter(torch.ones(1, 1, torch.arange(m)[::3].numel(), n))
-        self.seg_mask = nn.Parameter(torch.ones(1, 2, m, n))
-
-        self.recon_guided = None
-
-        self.weight = nn.Parameter(0.5 * torch.ones(1, n))
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(
-        self, b, b_negative, foreground_b, hX, recon_old, fusion_mask, b_old, r
-    ):
-
-        if self.recon_guided is None:
-            self.recon_old_max, self.ind_max = F.max_pool2d_with_indices(
-                recon_old,
-                (1, 2 * self.r + 1),
-                padding=(0, self.r),
-                stride=1,
-            )
-            self.recon_guided, self.A_guided, self.b_guided = self.guidedfilterloss(
-                recon_old
-            )
-            self.p = (0, hX.shape[-1] % 2, 0, hX.shape[-2] % 2)
-            self.l_row = None if hX.shape[-2] % 2 == 0 else -1
-            self.l_col = None if hX.shape[-1] % 2 == 0 else -1
-
+    def forward(self, b):
         b = b * self.softplus(self.w)
-        decay_col = F.interpolate(
-            torch.cumsum(b_negative * self.softplus(self.decay_col), -2),
-            (self.m, self.n),
-            mode="bilinear",
-        )
-        b = torch.cumsum(b, -2)
-
-        b = b + decay_col * (1 - foreground_b)
-        b_adpt = b * fusion_mask + b_old * (1 - fusion_mask)
-
-        with torch.no_grad():
-            diff = self.guidedfilterloss(hX[:, :, ::r, :] + b_adpt - recon_old)[0]
-
-        diff_adpt = torch.clip(
-            torch.diff(diff, dim=-2, prepend=diff[:, :, 0:1, :]), 0.0, None
-        )
-        diff_adpt = diff_adpt * self.softplus(self.ww)
-        diff_adpt = torch.cumsum(diff_adpt, -2)
-        b_adpt = b_adpt - diff_adpt
-
-        return b_adpt, diff, diff_adpt, b
+        b_adpt = torch.cumsum(b, -2)
+        return b_adpt
 
 
 class compose_post(nn.Module):
     def __init__(self, m, n):
         super().__init__()
-        self.w = nn.Parameter(0.5 * torch.ones(1, n))
+        self.w = nn.Parameter(0.5 * torch.ones(1, 1, 1, n))
         self.sigmoid = nn.Sigmoid()
-        self.alpha_up = nn.Parameter(torch.ones(1))
-        self.alpha_bottom = nn.Parameter(torch.ones(1))
 
     def forward(self, b_up, b_bottom, hX):
         w = self.sigmoid(self.w)
-        b = w * (b_up + 0 * self.alpha_up) + (1 - w) * (b_bottom + self.alpha_bottom)
-        return hX + b, b
+        b = w * (b_up) + (1 - w) * (b_bottom)
+        return hX + b
 
 
 class GuidedFilterLoss:
-    def __init__(self, r, eps=1e-9):
+    def __init__(self, seg_mask, r, downsample_ratio, eps=1e-9):
         self.r, self.eps = r, eps
+        self.downsample_ratio = downsample_ratio
+        self.N = self.boxfilter(1 - seg_mask)
 
     def diff_x(self, input, r):
         return input[:, :, 2 * r :, :] - input[:, :, : -2 * r, :]
@@ -113,41 +203,34 @@ class GuidedFilterLoss:
     def boxfilter(self, input):
         return self.diff_x(
             self.diff_y(
-                edge_padding(input, self.r).cumsum(3),
-                self.r,
+                edge_padding_xy(input, self.r, self.r * self.downsample_ratio).cumsum(
+                    3
+                ),
+                self.r * self.downsample_ratio,
             ).cumsum(2),
             self.r,
         )
 
-    def __call__(self, x, A=None, b=None):
-        if A is None:
-            N = self.boxfilter(torch.ones_like(x))
-            mean_x_y = self.boxfilter(x) / N
-            mean_x2 = self.boxfilter(x * x) / N
-            cov_xy = mean_x2 - mean_x_y * mean_x_y
-            var_x = mean_x2 - mean_x_y * mean_x_y
-            A = cov_xy / (var_x + self.eps)  # jnp.clip(var_x, self.eps, None)
-            b = mean_x_y - A * mean_x_y
-            A, b = self.boxfilter(A) / N, self.boxfilter(b) / N
-            return A * x + b, A, b
-        else:
-            return A * x + b
-
-
-def edge_padding(x, r):
-    x = torch.cat(
-        (x[:, :, 0:1, :].repeat(1, 1, r, 1), x, x[:, :, -1:, :].repeat(1, 1, r, 1)),
-        -2,
-    )
-    return torch.cat(
-        (x[:, :, :, 0:1].repeat(1, 1, 1, r), x, x[:, :, :, -1:].repeat(1, 1, 1, r)),
-        -1,
-    )
+    def __call__(self, x):
+        mean_x_y = self.boxfilter(x) / self.N
+        mean_x2 = self.boxfilter(x * x) / self.N
+        cov_xy = mean_x2 - mean_x_y * mean_x_y
+        var_x = mean_x2 - mean_x_y * mean_x_y
+        A = cov_xy / (var_x + self.eps)
+        b = mean_x_y - A * mean_x_y
+        A, b = self.boxfilter(A) / self.N, self.boxfilter(b) / self.N
+        return A * x + b
 
 
 class loss_post(nn.Module):
     def __init__(
         self,
+        weight_tvx,
+        weight_tvy,
+        weight_tvx_f,
+        weight_tvy_f,
+        weight_tvx_hr,
+        allow_stripe_deviation=False,
     ):
         super().__init__()
         kernel_x, kernel_y = self.rotatableKernel(3, 1)
@@ -161,9 +244,37 @@ class loss_post(nn.Module):
             "kernel_y",
             torch.from_numpy(np.asarray(kernel_y))[None, None].to(torch.float),
         )
-
-        self.GuidedFilterLoss = GuidedFilterLoss(49, 1)
         self.ptv = 3
+
+        self.register_buffer(
+            "weight_tvx",
+            weight_tvx,
+        )
+        self.register_buffer(
+            "weight_tvy",
+            weight_tvy,
+        )
+        self.register_buffer(
+            "weight_tvx_f",
+            weight_tvx_f,
+        )
+        self.register_buffer(
+            "weight_tvy_f",
+            weight_tvy_f,
+        )
+        self.register_buffer(
+            "weight_tvx_hr",
+            weight_tvx_hr,
+        )
+        if allow_stripe_deviation:
+            self.tv_hr = self.tv_hr_func
+        else:
+            self.tv_hr = lambda x, y: 0
+
+    def tv_hr_func(self, y, weight_tvx_hr):
+        return (
+            weight_tvx_hr * torch.conv2d(y, self.kernel_x, stride=(1, 1)).abs()
+        ).sum()
 
     def rotatableKernel(
         self,
@@ -177,43 +288,30 @@ class loss_post(nn.Module):
 
     def forward(
         self,
-        decay,
-        weight,
         y,
         hX,
-        weight_tvx,
-        weight_tvy,
-        weight_tvx_f,
-        weight_tvy_f,
-        b0,
+        h_mask,
         r,
     ):
 
-        e1 = torch.conv2d(edge_padding(y, self.ptv), self.kernel_x).abs()
-        e2 = torch.conv2d(edge_padding(y, self.ptv), self.kernel_y)
+        e1 = torch.conv2d(y[:, :, ::r, :], self.kernel_x).abs()
+        e2 = torch.conv2d(y[:, :, ::r, :], self.kernel_y)  # , stride = (r, 1)
 
-        mask = torch.where(
-            torch.conv2d(edge_padding(hX + b0, self.ptv), self.kernel_y).abs()
-            < torch.conv2d(edge_padding(hX, self.ptv), self.kernel_y).abs(),
-            torch.conv2d(edge_padding(hX, self.ptv), self.kernel_y),
-            torch.conv2d(edge_padding(hX + b0, self.ptv), self.kernel_y),
-        )
-
-        e22 = torch.diff(y, dim=-1, prepend=y[..., 0:1]).abs()
-
-        e3 = torch.conv2d(edge_padding(y[:, :, :, ::r], self.ptv), self.kernel_x).abs()
+        e121 = (y[..., :-1, :-1] - y[..., :-1, 1:]).abs()
+        e3 = torch.conv2d(F.avg_pool2d(y, (r, r), stride=(r, r)), self.kernel_x).abs()
         return (
-            1 * (decay - weight).abs().sum()
-            + (weight_tvx * e22).sum()
-            + (weight_tvx * e1).sum()
-            + 1 * (weight_tvy * (e2 - mask).abs())[:, :, ::1, :].sum()
-            + 1 * (weight_tvx_f * e3).sum()
+            (self.weight_tvx_hr * e121[..., 3:-2, 3:-2]).sum()
+            + (self.weight_tvx * e1).sum()
+            + (self.weight_tvy * (e2 - h_mask).abs()).sum()
+            + (self.weight_tvx_f * e3).sum()
+            + self.tv_hr(y, self.weight_tvx_hr)
         )
 
 
 class loss_compose_post(nn.Module):
     def __init__(
         self,
+        mask,
     ):
         super().__init__()
         kernel_x, kernel_y = self.rotatableKernel(3, 1)
@@ -222,6 +320,10 @@ class loss_compose_post(nn.Module):
         )
         self.register_buffer(
             "kernel_y", torch.from_numpy(kernel_y)[None, None].to(torch.float)
+        )
+        self.register_buffer(
+            "mask",
+            mask,
         )
 
     def rotatableKernel(
@@ -234,279 +336,451 @@ class loss_compose_post(nn.Module):
         gp = -(k / sigma) * np.exp(-(k**2) / (2 * sigma**2))
         return g.T * gp, gp.T * g
 
-    def forward(self, y, hX, foreground, valid_mask, fidelity_mask):
+    def forward(
+        self,
+        y,
+        hX,
+        r,
+    ):
         e1 = (
             torch.conv2d(F.pad(y, (3, 3, 3, 3), mode="reflect"), self.kernel_x).abs()
-            * valid_mask
+            * self.mask
         )
-        return e1.sum()  # + e2.sum()
+
+        e3 = (
+            torch.conv2d(
+                F.pad(y[..., ::r, ::r], (3, 3, 3, 3), mode="reflect"), self.kernel_x
+            ).abs()
+            * self.mask[..., ::r, ::r]
+        )
+        e4 = (
+            torch.conv2d(
+                F.pad((y - hX)[..., ::r, ::r], (3, 3, 3, 3), mode="reflect"),
+                self.kernel_y,
+            ).abs()
+            * self.mask[..., ::r, ::r]
+        )
+
+        e8 = (
+            torch.conv2d(
+                F.pad((y - hX)[..., ::r, :], (3, 3, 3, 3), mode="reflect"),
+                self.kernel_y,
+            ).abs()
+            * self.mask[..., ::r, :]
+        )
+
+        e5 = (y[:, :, :, :-1] - y[:, :, :, 1:]).abs() * self.mask[..., :, :-1]
+
+        return e1.sum() + e3.sum() + e5.sum() + r * e4.sum() + r * e8.sum()
 
 
 def train_post_process_module(
     hX,
     b,
     valid_mask,
-    seg_mask,
+    missing_mask,
     fusion_mask,
     foreground,
+    boundary_mask,
+    filled_mask,
     n_epochs,
     r,
     device,
+    non_positive,
+    allow_stripe_deviation,
+    desc="",
 ):
     m, n = hX[:, :, ::r, :].shape[-2:]
-    model = stripe_post(m, n).to(device)
-    loss = loss_post().to(device)
-    opt = Adam(model.parameters(), lr=1)
-    b_sparse = (
-        torch.clip(
-            torch.diff(b[:, :, ::r, :], dim=-2, prepend=0 * b[:, :, 0:1, :]), 0.0, None
+
+    b_sparse_0 = torch.clip(
+        torch.diff(b[:, :, ::r, :], dim=-2, prepend=0 * b[:, :, 0:1, :]),
+        0.0,
+        None,
+    ) * (1 - missing_mask[:, :, ::r, :])
+    if hX.shape[-2] % r == 0:
+        p = (0, 0, 0, 0)
+    else:
+        p = (0, 0, 0, r - hX.shape[-2] % r)
+
+    model_0 = stripe_post(m, n).to(device)
+
+    if not non_positive:
+        b_sparse_1 = torch.clip(
+            torch.diff(b[:, :, ::r, :], dim=-2, prepend=0 * b[:, :, 0:1, :]),
+            None,
+            0.0,
         )
-        * valid_mask[:, :, ::r, :]
-        * (1 - seg_mask)[:, :, ::r, :]
+        model_1 = stripe_post(m, n).to(device)
+
+    weight_tvx = valid_mask[:, :, ::r, :]
+    valid_mask_for_preserve = valid_mask * foreground
+    weight_tvy = valid_mask_for_preserve[:, :, ::r, :]
+    weight_tvx_f = F.avg_pool2d(valid_mask, (r, r), stride=(r, r)) >= 1
+    weight_tvx_f = weight_tvx_f[:, :, 3:-3, 3:-3]
+    weight_tvy_f = valid_mask_for_preserve[:, :, ::r, ::r]
+    weight_tvx_hr = valid_mask
+    weight_tvx = weight_tvx[..., 3:-3, 3:-3]
+    weight_tvy = weight_tvy[..., 3:-3, 3:-3]
+    weight_tvx_hr = weight_tvx_hr[..., 3:-3, 3:-3]
+
+    loss = loss_post(
+        weight_tvx,
+        weight_tvy,
+        weight_tvx_f,
+        weight_tvy_f,
+        weight_tvx_hr,
+        allow_stripe_deviation=allow_stripe_deviation,
+    ).to(device)
+
+    h_mask = torch.where(
+        torch.conv2d((hX + b)[:, :, ::r, :], loss.kernel_y).abs()
+        > torch.conv2d(hX[:, :, ::r, :], loss.kernel_y).abs(),
+        torch.conv2d(hX[:, :, ::r, :], loss.kernel_y),
+        torch.conv2d((hX + b)[:, :, ::r, :], loss.kernel_y),
     )
-    b_sparse_negative = (
-        torch.clip(
-            torch.diff(b[:, :, :: r * 3, :], dim=-2, prepend=b[:, :, 0:1, :]), None, 0
-        )
-        * valid_mask[:, :, :: r * 3, :]
-        * (1 - seg_mask)[:, :, :: r * 3, :]
-    )
-    rr = 10
-    weight_tvx = (1 - seg_mask)[:, :, ::rr, :] * valid_mask[:, :, ::rr, :]
-    weight_tvy = (
-        valid_mask[:, :, ::rr, :]
-        * foreground[:, :, ::rr, :]
-        * (1 - seg_mask)[:, :, ::rr, :]
-    )
-    weight_tvx_f = (1 - seg_mask)[:, :, ::rr, ::rr] * valid_mask[:, :, ::rr, ::rr]
-    weight_tvy_f = (
-        valid_mask[:, :, ::rr, ::rr]
-        * foreground[:, :, ::rr, ::rr]
-        * (1 - seg_mask)[:, :, ::rr, ::rr]
+    h_mask = torch.where(
+        boundary_mask[:, :, ::r, :][..., 3:-3, 3:-3] == 1,
+        torch.conv2d(hX[:, :, ::r, :], loss.kernel_y),
+        h_mask,
     )
 
-    for e in tqdm.tqdm(range(n_epochs)):
-        b_new, decay, weight, b_new2 = model(
-            b_sparse,
-            b_sparse_negative,
-            seg_mask[:, :, ::r, :],
+    peusdo_recon = torch.maximum((hX + b), hX)
+    peusdo_recon = peusdo_recon * fusion_mask + hX * (1 - fusion_mask)
+    peusdo_recon = peusdo_recon[:, :, ::r, :]
+
+    if non_positive:
+        opt = Adam(model_0.parameters(), lr=1)
+    else:
+        opt = Adam([*model_0.parameters(), *model_1.parameters()], lr=1)
+
+    for e in tqdm.tqdm(
+        range(n_epochs), leave=False, desc="post-process stripes {}: ".format(desc)
+    ):
+        b_new_0 = model_0(
+            b_sparse_0,
+        )
+        l = loss(
+            F.interpolate(
+                b_new_0,
+                hX.shape[-2:],
+                mode="bilinear",
+                align_corners=True,
+            )
+            + hX,
             hX,
-            torch.maximum((hX + b), hX)[:, :, ::r, :],
-            fusion_mask[::r, :],
-            b[:, :, ::r, :],
+            h_mask,
             r,
         )
-
-        b_new = (F.interpolate(b_new, hX.shape[-2:], mode="bilinear") + hX)[
-            :, :, ::rr, :
-        ]
-        ll = loss(
-            decay,
-            weight,
-            b_new,
-            hX[:, :, ::rr, :],
-            weight_tvx,
-            weight_tvy,
-            weight_tvx_f,
-            weight_tvy_f,
-            b[:, :, ::rr, :],
-            rr,
-        )
+        if not non_positive:
+            b_new_1 = model_1(
+                b_sparse_1,
+            )
+            l = l + loss(
+                F.interpolate(
+                    b_new_1,
+                    hX.shape[-2:],
+                    mode="bilinear",
+                    align_corners=True,
+                )
+                + hX,
+                hX,
+                h_mask,
+                r,
+            )
         opt.zero_grad()
-        ll.backward()
+        l.backward()
         opt.step()
-    return b_new2  # -hX[:, :, ::r, :]
+
+    if non_positive:
+        b_new = b_new_0
+    else:
+        b_new = torch.cat((b_new_0, b_new_1), 0)
+
+    guidedfilterloss = GuidedFilterLoss(
+        torch.zeros_like(filled_mask)[:, :, ::r, :],
+        49,
+        r,
+        10,
+    )
+    b_new = edge_padding_xy(b_new[..., 3:-3, 3:-3], 3, 3)
+    b_new = b_new * fusion_mask[:, :, ::r, :] + torch.zeros_like(b_new) * (
+        1 - fusion_mask[:, :, ::r, :]
+    )
+    b_new = b_new.detach()
+
+    diff = guidedfilterloss(
+        (hX[:, :, ::r, :] + b_new.detach() - peusdo_recon)
+        * (1 - torch.zeros_like(filled_mask)[:, :, ::r, :])
+    )
+
+    b_new = b_new - diff.detach()
+
+    b_new = F.interpolate(
+        b_new,
+        (hX.shape[-2], hX.shape[-1]),
+        mode="bilinear",
+        align_corners=True,
+    )
+
+    recon = (hX + b_new).detach()
+
+    if not non_positive:
+        recon_dark, recon_bright = recon[:, None]
+        model = compose_post(hX.shape[-2], hX.shape[-1]).to(device)
+        opt = Adam(model.parameters(), lr=1)
+        mask = valid_mask * (1 - missing_mask)
+        loss = loss_compose_post(mask).to(device)
+        for e in tqdm.tqdm(
+            range(1000),
+            leave=False,
+            desc="merge positive and non-positive stripe {}: ".format(desc),
+        ):
+            recon = model(recon_dark - hX, recon_bright - hX, hX)
+            l = loss(recon, hX, r)
+            opt.zero_grad()
+            l.backward()
+            opt.step()
+    else:
+        recon = (
+            (1 - boundary_mask) * (recon - hX)
+            + boundary_mask * torch.maximum(*(recon - hX), torch.zeros_like(hX))
+            + hX
+        )
+        pass
+
+    return recon
 
 
-def last_nonzero(arr, mask, axis, invalid_val=np.nan):
-    if mask is None:
-        mask = arr != 0
-    if type(mask) is not np.ndarray:
-        mask = mask.cpu().detach().numpy()
-    val = mask.shape[axis] - np.flip(mask, axis=axis).argmax(axis=axis) - 1
-    return np.where(mask.any(axis=axis), val, invalid_val)
+def uniform_fusion_mask(fusion_mask, angle_list, illu_orient, device):
+    if isinstance(fusion_mask, np.ndarray):
+        fusion_mask = torch.from_numpy(fusion_mask.copy()).to(device)
+    m, n = fusion_mask.shape[-2:]
+    for angle in angle_list:
+        fusion_mask = rotate(fusion_mask, -angle, expand=True, mode="constant")
+        if illu_orient == "top":
+            fusion_mask = (
+                torch.flip(torch.cumsum(torch.flip(fusion_mask > 0, [-2]), -2), [-2])
+                > 0
+            )
+            fusion_mask = (
+                torch.flip(torch.cumsum(torch.flip(fusion_mask > 0, [-2]), -2), [-2])
+                > 0
+            )
+            fusion_mask = fusion_mask.to(torch.float)
+        if illu_orient == "bottom":
+            fusion_mask = torch.cumsum(fusion_mask > 0, -2) > 0
+            fusion_mask = torch.cumsum(fusion_mask > 0, -2) > 0
+            fusion_mask = fusion_mask.to(torch.float)
+        fusion_mask = crop_center(
+            rotate(fusion_mask, angle, expand=True, mode="constant"), m, n
+        )
+    return fusion_mask.cpu().data.numpy()
+
+
+def padding_size(H, W, angle):
+    angle = np.deg2rad(angle)
+    H_new = np.cos(angle) * H + np.sin(angle) * W
+    W_new = np.sin(angle) * H + np.cos(angle) * W
+    return H_new, W_new
 
 
 def linear_propagation(
     b,
     hX,
-    result_network,
     foreground,
+    missing_mask,
+    boundary_mask,
+    filled_mask,
     angle_offset,
+    allow_stripe_deviation=False,
     illu_orient="top",
     n_epochs=1000,
     fusion_mask=None,
+    device=None,
+    non_positive=False,
+    r=10,
+    gf_kernel_size=49,
+    desc="",
 ):
-    print(illu_orient)
-    r = 10
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    seg_mask = generate_seg_mask(result_network, hX)
 
     m0, n0 = hX.shape[-2:]
-    # hX0 = copy.deepcopy(hX)
 
-    foreground = scipy.ndimage.rotate(
-        foreground, -angle_offset, order=0, axes=(-2, -1), mode="constant"
-    )
-    if fusion_mask is not None:
-        fusion_mask = scipy.ndimage.rotate(
-            fusion_mask, -angle_offset, order=1, axes=(-2, -1), mode="constant"
-        )
-        fusion_mask = torch.from_numpy(fusion_mask).to(device)
+    hX0 = copy.deepcopy(hX)
 
-    foreground_b = scipy.ndimage.binary_erosion(
-        foreground,
-        np.ones((1, 1, 9, 9), dtype=bool),
-    )
-    foreground_b = (foreground_b == 0) * foreground
-
-    valid_mask = np.ones_like(b)
-    valid_mask = scipy.ndimage.rotate(
-        valid_mask, -angle_offset, order=1, axes=(-2, -1), mode="constant"
-    )
-
-    seg_mask = (
-        scipy.ndimage.rotate(
-            seg_mask, -angle_offset, order=1, axes=(-2, -1), mode="constant"
-        )
-        > 0
-    )
-
-    # seg_mask = scipy.ndimage.binary_dilation(
-    #     seg_mask,
-    #     np.ones((1, 1, 1, 59), dtype=bool),
-    # )
-
-    b = scipy.ndimage.rotate(b, -angle_offset, order=1, axes=(-2, -1), mode="nearest")
-    hX = scipy.ndimage.rotate(hX, -angle_offset, order=1, axes=(-2, -1), mode="nearest")
-
-    m, n = b[:, :, ::r, :].shape[-2:]
-
-    fidelity_mask = valid_mask * (np.abs(b) < 1e-3)
-
+    foreground = torch.from_numpy(foreground).to(device)
+    fusion_mask = torch.from_numpy(fusion_mask.copy()).to(device)
     b = torch.from_numpy(b).to(device)
     hX = torch.from_numpy(hX).to(device)
 
-    fidelity_mask = torch.from_numpy(fidelity_mask).to(device) + 0.0
-    valid_mask = torch.from_numpy(valid_mask).to(device)
-    seg_mask = torch.from_numpy(seg_mask).to(device) + 0.0
-    # seg_mask_l = torch.from_numpy(seg_mask_l).to(device) + 0.0
-    foreground = torch.from_numpy(foreground).to(device) + 0.0
-    foreground_b = torch.from_numpy(foreground_b).to(device) + 0.0
+    foreground = rotate(foreground, -angle_offset, mode="constant") > 0
+    fusion_mask = rotate(fusion_mask, -angle_offset, mode="constant")
+    valid_mask = rotate(torch.ones_like(hX), -angle_offset, mode="constant") > 0
+    missing_mask = rotate(missing_mask, -angle_offset, mode="constant") > 0
+    boundary_mask = rotate(boundary_mask, -angle_offset, mode="constant") > 0
+    filled_mask = rotate(filled_mask, -angle_offset, mode="constant") > 0
 
-    if fusion_mask is None:
-        fusion_mask = torch.ones_like(hX)
+    hX = rotate(hX, -angle_offset, mode="nearest")
+    b = rotate(b, -angle_offset, mode="nearest")
+
+    b = F.pad(b, (0, 0, gf_kernel_size // 2, gf_kernel_size // 2), "reflect")
+
+    chunks = torch.split(b, 64, dim=-1)
+    b = []
+    for _, chunk in enumerate(chunks):
+        b.append(chunk.unfold(-2, gf_kernel_size, 1).median(dim=-1)[0])
+
+    b = torch.cat(b, -1)
+    m, n = b[:, :, ::r, :].shape[-2:]
+
+    foreground = torch.where(foreground.sum(-2, keepdim=True) == 0, 1, foreground)
+
+    foreground = foreground + 0.0
+    valid_mask = valid_mask + 0.0
+    missing_mask = missing_mask + 0.0
+    boundary_mask = boundary_mask + 0.0
+    filled_mask = filled_mask + 0.0
+
+    if fusion_mask.sum() == 0:
+        return np.zeros(
+            (
+                1,
+                1,
+                m0,
+                n0,
+            ),
+            dtype=np.float32,
+        )
 
     if "top" in illu_orient:
-        b_new = train_post_process_module(
-            hX,
-            b,
-            valid_mask,
-            seg_mask,
-            fusion_mask,
-            foreground,
+        s = min(last_nonzero(fusion_mask, None, -2, 0).max() + 3, hX.shape[-2])
+        c0 = max(
+            first_nonzero(fusion_mask * valid_mask, None, -1, hX.shape[-1]).min() - 3, 0
+        )
+        c1 = min(
+            last_nonzero(fusion_mask * valid_mask, None, -1, 0).max() + 3, hX.shape[-1]
+        )
+        fusion_mask_adpt = copy.deepcopy(fusion_mask[..., :s, c0:c1])
+        # fusion_mask_adpt[fusion_mask_adpt == 0] = 0.1
+        recon_up = train_post_process_module(
+            hX[..., :s, c0:c1],
+            b[..., :s, c0:c1],
+            valid_mask[..., :s, c0:c1] * fusion_mask_adpt,
+            missing_mask[..., :s, c0:c1],
+            fusion_mask[..., :s, c0:c1],
+            foreground[..., :s, c0:c1],
+            boundary_mask[..., :s, c0:c1],
+            filled_mask[..., :s, c0:c1],
             n_epochs,
             r,
             device,
+            non_positive=non_positive,
+            allow_stripe_deviation=allow_stripe_deviation,
+            desc=desc,
         )
-
-        # b_new = b_new - hX
-        # b_new[w == 0] = 0
-
-        recon_up = (
-            (
-                hX
-                + F.interpolate(
-                    b_new,
-                    (hX.shape[-2], hX.shape[-1]),
-                    mode="bilinear",
-                    align_corners=True,
-                )
-            )
-            .cpu()
-            .data.numpy()
-        )
+        recon_up = F.pad(recon_up, (c0, n - (c1 - c0) - c0, 0, hX.shape[-2] - s))
 
     if "bottom" in illu_orient:
         b = torch.flip(b, [-2])
         valid_mask = torch.flip(valid_mask, [-2])
         hX = torch.flip(hX, [-2])
-        seg_mask = torch.flip(seg_mask, [-2])
-        fidelity_mask = torch.flip(fidelity_mask, [-2])
+        missing_mask = torch.flip(missing_mask, [-2])
         foreground = torch.flip(foreground, [-2])
-        foreground_b = torch.flip(foreground_b, [-2])
         fusion_mask = torch.flip(fusion_mask, [-2])
+        boundary_mask = torch.flip(boundary_mask, [-2])
+        filled_mask = torch.flip(filled_mask, [-2])
 
-        b_new_flip = train_post_process_module(
-            hX,
-            b,
-            valid_mask,
-            seg_mask,
-            fusion_mask,
-            foreground,
+        s = min(last_nonzero(fusion_mask, None, -2, 0).max() + 3, hX.shape[-2])
+        c0 = max(
+            first_nonzero(fusion_mask * valid_mask, None, -1, hX.shape[-1]).min() - 3, 0
+        )
+        c1 = min(
+            last_nonzero(fusion_mask * valid_mask, None, -1, 0).max() + 3, hX.shape[-1]
+        )
+
+        fusion_mask_adpt = copy.deepcopy(fusion_mask[..., :s, c0:c1])
+        # fusion_mask_adpt[fusion_mask_adpt == 0] = 0.1
+
+        recon_bottom = train_post_process_module(
+            hX[..., :s, c0:c1],
+            b[..., :s, c0:c1],
+            valid_mask[..., :s, c0:c1] * fusion_mask_adpt,
+            missing_mask[..., :s, c0:c1],
+            fusion_mask[..., :s, c0:c1],
+            foreground[..., :s, c0:c1],
+            boundary_mask[..., :s, c0:c1],
+            filled_mask[..., :s, c0:c1],
             n_epochs,
             r,
             device,
+            non_positive=non_positive,
+            allow_stripe_deviation=allow_stripe_deviation,
+            desc=desc,
         )
 
-        b_new = torch.flip(b_new_flip, [-2])
+        recon_bottom = F.pad(
+            recon_bottom, (c0, n - (c1 - c0) - c0, 0, hX.shape[-2] - s)
+        )
+
         hX = torch.flip(hX, [-2])
         fusion_mask = torch.flip(fusion_mask, [-2])
-
-        # b_new = b_new - hX
-
-        recon_bottom = (
-            (
-                hX
-                + F.interpolate(
-                    b_new,
-                    (hX.shape[-2], hX.shape[-1]),
-                    mode="bilinear",
-                    align_corners=True,
-                )
-            )
-            .cpu()
-            .data.numpy()
-        )
-    if illu_orient == "top-bottom":
-        recon_up = torch.from_numpy(recon_up).to(device)
-        recon_bottom = torch.from_numpy(recon_bottom).to(device)
-
-        foreground = torch.flip(foreground, [-2])
         valid_mask = torch.flip(valid_mask, [-2])
-        fidelity_mask = torch.flip(fidelity_mask, [-2])
+        missing_mask = torch.flip(missing_mask, [-2])
+        foreground = torch.flip(foreground, [-2])
+        recon_bottom = torch.flip(recon_bottom, [-2])
+        boundary_mask = torch.flip(boundary_mask, [-2])
 
+    if illu_orient == "top-bottom":
+        recon_up = recon_up.detach()
+        recon_bottom = recon_bottom.detach()
         model = compose_post(m, n).to(device)
         opt = Adam(model.parameters(), lr=1)
-        loss = loss_compose_post().to(device)
-        for e in tqdm.tqdm(range(1000)):
-            recon, b = model(recon_up - hX, recon_bottom - hX, hX)
-            ll = loss(recon, hX, foreground, valid_mask, fidelity_mask)
+        mask = valid_mask * fusion_mask
+        loss = loss_compose_post(mask).to(device)
+
+        for e in tqdm.tqdm(
+            range(1000), leave=False, desc="merge top-bottom ill. {}: ".format(desc)
+        ):
+            recon = model(recon_up - hX, recon_bottom - hX, hX)
+            l = loss(recon, hX, r)
             opt.zero_grad()
-            ll.backward()
+            l.backward()
             opt.step()
-        recon = recon.cpu().data.numpy()
+
     if illu_orient == "top":
         recon = recon_up
     if illu_orient == "bottom":
         recon = recon_bottom
-    recon = crop_center(
-        scipy.ndimage.rotate(
-            recon,
-            angle_offset,
-            order=1,
-            axes=(-2, -1),
-            mode="nearest",
-        ),
-        m0,
-        n0,
+
+    recon = (
+        crop_center(
+            rotate(
+                recon,
+                angle_offset,
+                expand=True,
+                mode="nearest",
+            ),
+            m0,
+            n0,
+        )
+        .cpu()
+        .data.numpy()
     )
+
     return recon
+
+
+def simple_rotate(x, angle, device):
+    x = torch.from_numpy(x).to(device)
+    H, W = x.shape[-2:]
+    x = crop_center(
+        rotate(rotate(x, -angle, mode="nearest"), angle=angle, mode="nearest"), H, W
+    )
+    return x.cpu().data.numpy()
 
 
 def post_process_module(
     hX,
-    result_0,
+    result_gu,
     result_gnn,
     angle_offset_individual,
     illu_orient,
@@ -516,62 +790,139 @@ def post_process_module(
     non_positive=False,
     r=10,
     n_epochs=1000,
+    gf_kernel_size=49,
 ):
-    if hX.shape[1] > 1:
-        assert fusion_mask is not None, print("fusion_mask is missing.")
-        assert len(angle_offset_individual) > 1, print(
-            "angle_offset_individual must be of length 2."
-        )
-        fusion_mask = fusion_mask[:, :, : hX.shape[-2], : hX.shape[-1]]
-
-        fusion_mask = np.pad(fusion_mask, ((0, 0), (0, 0), (259, 259), (0, 0)), "edge")
-    hX = np.pad(hX, ((0, 0), (0, 0), (259, 259), (0, 0)), "reflect")
-    result_0 = np.pad(result_0, ((0, 0), (0, 0), (259, 259), (0, 0)), "reflect")
-    hX0 = copy.deepcopy(hX)
-    # target = (10**hX * fusion_mask).sum(1, keepdims=True)
-
-    if fusion_mask is None:
-        foreground = (np.log10(hX0 + 1) > threshold_otsu(np.log10(hX0 + 1))) + (
-            result_0 > threshold_otsu(result_0)
-        )
-        for angle, illu in zip(angle_offset_individual[0], illu_orient):
-            hX = linear_propagation(
-                result_0 - hX,
-                hX,
-                result_0,
-                foreground,
-                angle_offset=angle,
-                illu_orient=illu,
+    if illu_orient is not None:
+        if device == None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        if hX.shape[1] > 1:
+            assert fusion_mask is not None, print("fusion_mask is missing.")
+            assert len(angle_offset_individual) > 1, print(
+                "angle_offset_individual must be of length 2."
             )
-        return 10 ** np.clip(hX[..., 259:-259, :], result_0.min(), result_0.max())
-    else:
+            fusion_mask = fusion_mask[:, :, : hX.shape[-2], : hX.shape[-1]]
+
+        hX0 = copy.deepcopy(hX)
+        hX0 = np.where(hX0 == 0, hX0.max(1, keepdims=True), hX0)
+        target = np.log10(
+            np.clip(((10**hX0) * fusion_mask).sum(1, keepdims=True), 1, None)
+        )
         recon = []
+        target_wavelet_list = []
+        recon_gu_list = []
+
+        iex = 1
+        count = lambda lst: sum(count(x) if isinstance(x, list) else 1 for x in lst)
+        iex_total = count(angle_offset_individual)
         for ind, (angle_list, illu) in enumerate(
             zip(angle_offset_individual, illu_orient)
         ):
-            hX = hX0[:, ind : ind + 1].astype(np.float32)
-            foreground = (
-                np.log10(hX0[:, ind : ind + 1] + 1)
-                > threshold_otsu(np.log10(hX0[:, ind : ind + 1] + 1))
-            ) + (result_0 > threshold_otsu(result_0))
-            for angle in angle_list:
+            fusion_mask_ind = uniform_fusion_mask(
+                fusion_mask[:, ind : ind + 1],
+                angle_list,
+                illu,
+                device=device,
+            )
+            hX = hX0[:, ind : ind + 1, ...]
+
+            thresh_target_exp = threshold_otsu(10**target)
+            thresh_target = threshold_otsu(target)
+            thresh_result_gu_exp = threshold_otsu(10**result_gu)
+            thresh_result_gu = threshold_otsu(result_gu)
+
+            foreground = (10**target > thresh_target_exp) + (
+                10**result_gu > thresh_result_gu_exp
+            )
+            result_gu_torch = torch.from_numpy(result_gu.copy()).to(device)
+            target_torch = torch.from_numpy(target.copy()).to(device)
+            missing_mask = mask_with_lower_intensity(
+                result_gu_torch,
+                target_torch,
+                thresh_target_exp,
+                thresh_target,
+                thresh_result_gu_exp,
+                thresh_result_gu,
+            )
+            boundary_mask = extract_boundary(
+                result_gu,
+                target,
+                thresh_target_exp,
+                thresh_target,
+                thresh_result_gu_exp,
+                thresh_result_gu,
+                device,
+            )
+            filled_mask = mask_with_higher_intensity(
+                result_gu_torch,
+                target_torch,
+                thresh_target_exp,
+                thresh_target,
+                thresh_result_gu_exp,
+                thresh_result_gu,
+            )
+            target_wavelet = hX0[:, ind : ind + 1, ...]
+            recon_gu_wavelet = result_gu
+            for i, angle in enumerate(angle_list):
                 hX = linear_propagation(
-                    result_0 - hX,
+                    result_gnn - hX,
                     hX,
-                    result_0,
                     foreground,
+                    missing_mask,
+                    boundary_mask,
+                    filled_mask,
                     angle_offset=angle,
                     illu_orient=illu,
-                    fusion_mask=fusion_mask[0, ind],
+                    fusion_mask=fusion_mask_ind,
+                    device=device,
+                    non_positive=non_positive,
+                    allow_stripe_deviation=allow_stripe_deviation,
+                    r=r,
+                    n_epochs=n_epochs,
+                    gf_kernel_size=gf_kernel_size,
+                    desc="(No. {} out of {} angles)".format(iex, iex_total),
                 )
-            hX = np.clip(hX[..., 259:-259, :], result_0.min(), result_0.max())
+                target_wavelet = simple_rotate(target_wavelet, angle, device)
+                recon_gu_wavelet = simple_rotate(recon_gu_wavelet, angle, device)
+                iex += 1
             recon.append(hX)
+            target_wavelet_list.append(target_wavelet)
+            recon_gu_list.append(recon_gu_wavelet)
 
-        recon = 10 ** np.concatenate(recon, 1)[0]
-        recon = np.clip(recon, 0, 65535)
-        fusion_mask = fusion_mask[0, :, 259:-259, :]
+        recon = np.concatenate(recon, 1)
         recon = (recon * fusion_mask).sum(
-            0, keepdims=True
-        )  # * fusion_mask[:, :recon.shape[1], :recon.shape[2]]
-
-        return recon[None]
+            1,
+            keepdims=True,
+        )
+        target_wavelet_list = np.concatenate(target_wavelet_list, 1)
+        recon_gu_list = np.concatenate(recon_gu_list, 1)
+        target_wavelet = (target_wavelet_list * fusion_mask).sum(
+            1,
+            keepdims=True,
+        )
+        recon_gu_wavelet = (recon_gu_list * fusion_mask).sum(
+            1,
+            keepdims=True,
+        )
+    else:
+        recon = copy.deepcopy(result_gu)
+        target_wavelet = np.log10(
+            np.clip(((10**hX) * fusion_mask).sum(1, keepdims=True), 1, None)
+        )
+        recon_gu_wavelet = copy.deepcopy(result_gu)
+    recon_gu_wavelet = wave_rec(
+        10**recon_gu_wavelet,
+        10**target_wavelet,
+        None,
+        kernel="db2",
+        mode=2,
+        device=device,
+    )
+    recon = wave_rec(
+        10**recon,
+        10**target_wavelet,
+        recon_gu_wavelet,
+        kernel="db2",
+        mode=2,
+        device=device,
+    )
+    return recon

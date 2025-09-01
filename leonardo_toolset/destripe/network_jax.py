@@ -220,6 +220,39 @@ class GuidedFilterJAX(hk.Module):
             self.boxfilter(XN, self.kernelL[i], self.pc[i], self.pr[i])
             for i in range(self.AngleNum)
         ]
+        self.kernel_fft = []
+        for k in self.kernelL:
+            self.kernel_fft.append(
+                jnp.fft.fftshift(
+                    jnp.fft.fft2(
+                        k / k.sum(),
+                        (m, n),
+                    )
+                ).reshape(-1)[
+                    : (m * n) // 2
+                ][..., None]
+            )
+        self.m_l = m
+        self.n_l = n
+
+    def fourierResult(
+        self,
+        z,
+        aver,
+    ):
+        return jnp.abs(
+            jnp.fft.ifft2(
+                jnp.fft.ifftshift(
+                    jnp.concatenate(
+                        (z, aver, jnp.conj(jnp.flip(z, -2))),
+                        -2,
+                    )
+                    .reshape(1, self.m_l, -1, 1)
+                    .transpose(0, 3, 1, 2),
+                    axes=(-2, -1),
+                )
+            )
+        )
 
     def boxfilter(self, x, k, pc, pr):
         return jax.lax.conv_general_dilated(
@@ -235,15 +268,12 @@ class GuidedFilterJAX(hk.Module):
             feature_group_count=x.shape[1],
         )
 
-    def __call__(self, X, y, hX, coor):
-        X0 = copy.deepcopy(X)
+    def __call__(self, X, X0, y, aver, hX, coor):
         for i in range(self.AngleNum):
-            b = (
-                self.boxfilter(y - X, self.kernelL[i], self.pc[i], self.pr[i])
-                / self.N[i]
-            )
-            b = self.boxfilter(b, self.kernelL[i], self.pc[i], self.pr[i]) / self.N[i]
+            b = self.kernel_fft[i] * self.kernel_fft[i] * (y - X)
             X = X + b
+        X = self.fourierResult(X, aver)
+
         hX = (
             jax.scipy.ndimage.map_coordinates(X - X0, coor, order=1, mode="reflect")[
                 None, None
@@ -423,15 +453,24 @@ class DeStripeModel_jax(hk.Module):
     ):
         Xf = self.p(Xf)  # (M*N, 2,)
         Xf_tvx = self.gnn(Xf)
-        # X_fourier = self.merge(self.tv_uint(Xf_tvx, Xf))
-        X_fourier = self.merge(Xf_tvx)[0]
+
+        # X_fourier = self.merge(Xf_tvx)[0]
+        X_fourier = self.merge(self.tv_uint(Xf_tvx, Xf))
+
         outputGNNraw = self.fourierResult(X_fourier[..., 0], aver)
         alpha = hk.get_parameter(
             "alpha",
-            (1, 1, 1, 1),
+            (1,),
             jnp.float32,
             init=jnp.ones,
         )
         outputGNNraw = outputGNNraw + alpha
-        outputLR = self.GuidedFilter(target, outputGNNraw, target_hr, coor)
+        outputLR = self.GuidedFilter(
+            Xf[..., 0],
+            target,
+            X_fourier[..., 0],
+            aver + alpha * self.m_l * self.n_l,
+            target_hr,
+            coor,
+        )
         return outputGNNraw, outputLR
