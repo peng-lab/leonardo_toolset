@@ -1,5 +1,3 @@
-import copy
-
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -78,7 +76,6 @@ class GuidedUpsample:
         hX,
         angle_list,
     ):
-        hX_original = copy.deepcopy(hX)
         _, _, m, n = hX.shape
         for i, Angle in enumerate((-1 * np.array(angle_list)).tolist()):
             b = yy - hX

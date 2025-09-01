@@ -397,10 +397,6 @@ def train_post_process_module(
         0.0,
         None,
     ) * (1 - missing_mask[:, :, ::r, :])
-    if hX.shape[-2] % r == 0:
-        p = (0, 0, 0, 0)
-    else:
-        p = (0, 0, 0, r - hX.shape[-2] % r)
 
     model_0 = stripe_post(m, n).to(device)
 
@@ -459,7 +455,7 @@ def train_post_process_module(
         b_new_0 = model_0(
             b_sparse_0,
         )
-        l = loss(
+        l_loss = loss(
             F.interpolate(
                 b_new_0,
                 hX.shape[-2:],
@@ -475,7 +471,7 @@ def train_post_process_module(
             b_new_1 = model_1(
                 b_sparse_1,
             )
-            l = l + loss(
+            l_loss = l_loss + loss(
                 F.interpolate(
                     b_new_1,
                     hX.shape[-2:],
@@ -488,7 +484,7 @@ def train_post_process_module(
                 r,
             )
         opt.zero_grad()
-        l.backward()
+        l_loss.backward()
         opt.step()
 
     if non_positive:
@@ -536,9 +532,9 @@ def train_post_process_module(
             desc="merge positive and non-positive stripe {}: ".format(desc),
         ):
             recon = model(recon_dark - hX, recon_bright - hX, hX)
-            l = loss(recon, hX, r)
+            l_loss = loss(recon, hX, r)
             opt.zero_grad()
-            l.backward()
+            l_loss.backward()
             opt.step()
     else:
         recon = (
@@ -604,8 +600,6 @@ def linear_propagation(
 ):
 
     m0, n0 = hX.shape[-2:]
-
-    hX0 = copy.deepcopy(hX)
 
     foreground = torch.from_numpy(foreground).to(device)
     fusion_mask = torch.from_numpy(fusion_mask.copy()).to(device)
@@ -741,9 +735,9 @@ def linear_propagation(
             range(1000), leave=False, desc="merge top-bottom ill. {}: ".format(desc)
         ):
             recon = model(recon_up - hX, recon_bottom - hX, hX)
-            l = loss(recon, hX, r)
+            l_loss = loss(recon, hX, r)
             opt.zero_grad()
-            l.backward()
+            l_loss.backward()
             opt.step()
 
     if illu_orient == "top":
@@ -778,6 +772,10 @@ def simple_rotate(x, angle, device):
     return x.cpu().data.numpy()
 
 
+def count(lst):
+    return sum(count(x) if isinstance(x, list) else 1 for x in lst)
+
+
 def post_process_module(
     hX,
     result_gu,
@@ -793,7 +791,7 @@ def post_process_module(
     gf_kernel_size=49,
 ):
     if illu_orient is not None:
-        if device == None:
+        if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
         if hX.shape[1] > 1:
             assert fusion_mask is not None, print("fusion_mask is missing.")
@@ -812,7 +810,6 @@ def post_process_module(
         recon_gu_list = []
 
         iex = 1
-        count = lambda lst: sum(count(x) if isinstance(x, list) else 1 for x in lst)
         iex_total = count(angle_offset_individual)
         for ind, (angle_list, illu) in enumerate(
             zip(angle_offset_individual, illu_orient)

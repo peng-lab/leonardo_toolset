@@ -1,5 +1,3 @@
-import copy
-
 import haiku as hk
 import jax
 import jax.numpy as jnp
