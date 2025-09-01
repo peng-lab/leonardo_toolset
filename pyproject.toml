@@ -96,7 +96,9 @@ Documentation = "https://github.com/peng-lab/leonardo_toolset#README.md"
 "User Support" = "https://github.com/peng-lab/leonardo_toolset/issues"
 
 [project.scripts]
-run_leonardo = "leonardo_toolset.bin.leonardo_workflow:main"
+run_fuse_illu = "leonardo_toolset.fusion.bin.run_fuse_illu:main"
+run_fuse_det = "leonardo_toolset.fusion.bin.run_fuse_det:main"
+run_destripe = "leonardo_toolset.destripe.bin.run_destripe:main"
 
 [tool.setuptools]
 package-dir = {"" = "."}

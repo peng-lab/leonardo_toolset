@@ -147,7 +147,7 @@ class GuidedUpsample:
                 .data.numpy()
             )
         y = (10**y) * fusion_mask
-        return np.log10(y.sum(1, keepdims=True))
+        return np.log10(np.clip(y.sum(1, keepdims=True), 1, None))
 
     def GF(
         self,

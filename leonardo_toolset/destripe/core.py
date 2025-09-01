@@ -3,13 +3,16 @@ from typing import Dict, Union
 import numpy as np
 import copy
 import dask.array as da
+from torch.nn import functional as F
+import tempfile
+import gc
 import matplotlib.pyplot as plt
 import torch
 import tqdm
 from bioio import BioImage
-
+import os
 from dask.array import Array
-
+import traceback
 from leonardo_toolset.destripe.guided_filter_upsample import GuidedUpsample
 from leonardo_toolset.destripe.loss_term_torch import Loss_torch
 from leonardo_toolset.destripe.network_torch import DeStripeModel_torch
@@ -18,6 +21,10 @@ from leonardo_toolset.destripe.utils import (
     global_correction,
     prepare_aux,
     transform_cmplx_model,
+    save_memmap_from_images,
+    ensure_abs_tif,
+    open_or_init_mm,
+    finalize_save,
 )
 from leonardo_toolset.destripe.utils_torch import (
     generate_mask_dict_torch,
@@ -208,16 +215,12 @@ class DeStripe:
             tuple: (output image, target image)
         """
         rng_seq = jax.random.PRNGKey(0) if backend == "jax" else None
-        md = (
-            sample_params["md"]
-            if sample_params["is_vertical"]
-            else sample_params["nd"]  # noqa: E501
-        )
-        nd = (
-            sample_params["nd"]
-            if sample_params["is_vertical"]
-            else sample_params["md"]  # noqa: E501
-        )
+        if sample_params["is_vertical"]:
+            md = sample_params["md"]
+            nd = sample_params["nd"]
+        else:
+            md = sample_params["nd"]
+            nd = sample_params["md"]
         target = (X * fusion_mask).sum(1, keepdims=True)
         targetd = target[:, :, :: sample_params["r"], :]
 
@@ -314,9 +317,28 @@ class DeStripe:
         )
 
         if len(sample_params["illu_orient"]) > 0:
+            if backend == "jax":
+                Y_GNN = np.asarray(
+                    jax.image.resize(
+                        Y_raw,
+                        Y_GU.shape,
+                        method="bilinear",
+                    )
+                )
+            else:
+                Y_GNN = np.asarray(
+                    F.interpolate(
+                        Y_raw,
+                        Y_GU.shape[-2:],
+                        mode="bilinear",
+                        align_corners=True,
+                    )
+                )
+
             Y = post_process_module(
                 np.asarray(X) if backend == "jax" else X.cpu().data.numpy(),
                 Y_GU,
+                Y_GNN,
                 angle_offset_individual=sample_params["angle_offset_individual"],
                 fusion_mask=(
                     np.asarray(fusion_mask)
@@ -324,6 +346,8 @@ class DeStripe:
                     else fusion_mask.cpu().data.numpy()
                 ),
                 illu_orient=sample_params["illu_orient"],
+                non_positive=sample_params["non_positive"],
+                allow_stripe_deviation=sample_params["allow_stripe_deviation"],
             )
         else:
             Y = 10**Y_GU
@@ -344,10 +368,12 @@ class DeStripe:
         display: bool = False,
         device: str = "cpu",
         non_positive: bool = False,
+        allow_stripe_deviation: bool = False,
         backend: str = "jax",
         flag_compose: bool = False,
         display_angle_orientation: bool = True,
         illu_orient: str = None,
+        save_path: str = None,
     ):
         """
         Train the destriping model on a full 3D array (volume).
@@ -373,6 +399,7 @@ class DeStripe:
         Returns:
             np.ndarray: The destriped output volume.
         """
+
         if train_params is None:
             train_params = destripe_train_params()
         else:
@@ -408,11 +435,22 @@ class DeStripe:
             "angle_offset_individual": angle_offset_individual,
             "r": r,
             "non_positive": non_positive,
+            "allow_stripe_deviation": allow_stripe_deviation,
             "illu_orient": illu_orient_new,
         }
         z, _, m, n = X.shape
-        result = copy.deepcopy(X[:, 0, :, :])
-        mean = np.zeros(z)
+        _, _, m_0, n_0 = X.shape
+        if save_path is not None:
+            base, stem = ensure_abs_tif(save_path)
+            result_mm, done_mm = open_or_init_mm(base, stem, z, m, n)
+        else:
+            result_mm = np.zeros((z, m, n), dtype=np.uint16)
+            done_mm = np.zeros(z, dtype=np.uint8)
+
+        mean = np.zeros(z, dtype=np.float64)
+        MIN = np.zeros(z, dtype=np.float64)
+        MAX = np.zeros(z, dtype=np.float64)
+
         if sample_params["is_vertical"]:
             n = n if n % 2 == 1 else n - 1
             m = m // train_params["resample_ratio"]
@@ -451,7 +489,9 @@ class DeStripe:
         if display_angle_orientation:
             print("Please check the orientation of the stripes...")
             fig, ax = plt.subplots(
-                1, 2 if not flag_compose else len(angle_offset_individual), dpi=200
+                1,
+                2 if not flag_compose else len(angle_offset_individual),
+                dpi=200,
             )
             if not flag_compose:
                 ax[1].set_visible(False)
@@ -567,19 +607,37 @@ class DeStripe:
                 ax.set_title("input", fontsize=8, pad=1)
                 plt.axis("off")
                 plt.show()
-            result[i:, : Y.shape[0], : Y.shape[1]] = np.clip(Y, 0, 65535).astype(
-                np.uint16
+
+            out_slice = np.clip(Y, 0, 65535).astype(np.uint16)
+            out_slice = np.pad(
+                out_slice,
+                ((0, m_0 - m), (0, n_0 - n)),
+                mode="edge",
             )
-            mean[i] = np.mean(result[i] + 0.1)
+
+            result_mm[i] = out_slice
+            MIN[i] = out_slice.min()
+            MAX[i] = out_slice.max()
+            mean[i] = np.mean(out_slice + 0.1)
+            done_mm[i] = 1
+
+            getattr(result_mm, "flush", lambda: None)()
+            getattr(done_mm, "flush", lambda: None)()
 
         if (z != 1) and (not sample_params["non_positive"]):
             print("global correcting...")
-            result = global_correction(mean, result)
+            global_correction(
+                mean,
+                result_mm,
+                MIN,
+                MAX,
+            )
         print("Done")
-        return result
+        return result_mm
 
     def train(
         self,
+        save_path: str = None,
         is_vertical: bool = None,
         x: Union[str, np.ndarray, Array] = None,
         mask: Union[str, np.ndarray, Array] = None,
@@ -589,6 +647,7 @@ class DeStripe:
         display: bool = False,
         display_angle_orientation: bool = False,
         non_positive: bool = False,
+        allow_stripe_deviation: bool = False,
         **kwargs,
     ):
         """
@@ -666,6 +725,11 @@ class DeStripe:
               In such cases, please load the file manually and pass a `np.ndarray` instead.
         """
 
+        if save_path is not None:
+            _ = ensure_abs_tif(save_path)
+            base = os.path.split(save_path)[0]
+        else:
+            base = tempfile.gettempdir()
         if x is not None:
             if (illu_orient is None) and (is_vertical is None):
                 print("is_vertical and illu_orient cannot be missing at the same time.")
@@ -737,63 +801,112 @@ class DeStripe:
                 "mask should be of same shape as input volume(s)."
             )
         # read in dual-result, if applicable
-        if flag_compose:
-            assert not isinstance(fusion_mask, type(None)), print(
-                "fusion mask is missing."
-            )
-            if fusion_mask.ndim == 3:
-                fusion_mask = fusion_mask[None]
-            assert (
-                (fusion_mask.shape[0] == z)
-                and (fusion_mask.shape[2] == m)
-                and (fusion_mask.shape[3] == n)
-            ), print(
-                "fusion mask should be of shape [z_slices, ..., m rows, n columns]."
-            )
-            assert X.shape[1] == fusion_mask.shape[1], print(
-                "inputs should be {} in total.".format(fusion_mask.shape[1])
-            )
-            assert len(angle_offset_dict) == fusion_mask.shape[1], print(
-                "angle offsets should be {} in total.".format(fusion_mask.shape[1])
-            )
-            illu_orient = []
-            for key, item in kwargs.items():
-                if key.startswith("illu_orient_"):
-                    illu_orient.append(item)
-            if len(illu_orient) == 0:
-                print(
-                    "warning: illumination orientation is not given. post-processing will be ignored."
-                )
-            else:
-                assert len(illu_orient) == fusion_mask.shape[1], print(
-                    "illu_orient_ should be {} in total.".format(fusion_mask.shape[1])
-                )
-                for illu in illu_orient:
-                    if illu in ["top", "bottom", "top-bottom"]:
-                        is_vertical_illu = True
-                    else:
-                        is_vertical_illu = False
-                    if is_vertical is not None:
-                        assert is_vertical == is_vertical_illu, print(
-                            "is_vertical should align with illu_orient."
-                        )
-                    else:
-                        is_vertical = is_vertical_illu
 
-        # training
-        out = self.train_on_full_arr(
-            X,
-            is_vertical,
-            angle_offset_dict,
-            mask_data,
-            self.train_params,
-            fusion_mask,
-            display=display,
-            device=self.device,
-            non_positive=non_positive,
-            backend=self.backend,
-            flag_compose=flag_compose,
-            display_angle_orientation=display_angle_orientation,
-            illu_orient=illu_orient,
-        )
-        return out
+        try:
+            if flag_compose:
+                assert not isinstance(fusion_mask, type(None)), print(
+                    "fusion mask is missing."
+                )
+
+                if os.path.isdir(fusion_mask):
+                    count = len([f for f in os.listdir(fusion_mask)])
+                    assert count == X.shape[0], print(
+                        "the folder of fusion mask should contain {} files in total.".format(
+                            X.shape[1]
+                        )
+                    )
+                    fusion_mask = save_memmap_from_images(
+                        fusion_mask,
+                        os.path.join(base, "fusion_mask.npy"),
+                    )
+
+                elif os.path.isfile(fusion_mask):
+                    fusion_mask = np.load(fusion_mask)["mask"]
+                else:
+                    pass
+
+                if fusion_mask.ndim == 3:
+                    fusion_mask = fusion_mask[None]
+                assert (
+                    (fusion_mask.shape[0] == z)
+                    and (fusion_mask.shape[2] == m)
+                    and (fusion_mask.shape[3] == n)
+                ), print(
+                    "fusion mask should be of shape [z_slices, ..., m rows, n columns]."
+                )
+                assert X.shape[1] == fusion_mask.shape[1], print(
+                    "inputs should be {} in total.".format(fusion_mask.shape[1])
+                )
+                assert len(angle_offset_dict) == fusion_mask.shape[1], print(
+                    "angle offsets should be {} in total.".format(fusion_mask.shape[1])
+                )
+                illu_orient = []
+                for key, item in kwargs.items():
+                    if key.startswith("illu_orient_"):
+                        illu_orient.append(item)
+                if len(illu_orient) == 0:
+                    print(
+                        "warning: illumination orientation is not given. post-processing will be ignored."
+                    )
+                else:
+                    assert len(illu_orient) == fusion_mask.shape[1], print(
+                        "illu_orient_ should be {} in total.".format(
+                            fusion_mask.shape[1]
+                        )
+                    )
+                    for illu in illu_orient:
+                        if illu in ["top", "bottom", "top-bottom"]:
+                            is_vertical_illu = True
+                        else:
+                            is_vertical_illu = False
+                        if is_vertical is not None:
+                            assert is_vertical == is_vertical_illu, print(
+                                "is_vertical should align with illu_orient."
+                            )
+                        else:
+                            is_vertical = is_vertical_illu
+
+            # training
+            out = self.train_on_full_arr(
+                X,
+                is_vertical,
+                angle_offset_dict,
+                mask_data,
+                self.train_params,
+                fusion_mask,
+                display=display,
+                device=self.device,
+                non_positive=non_positive,
+                allow_stripe_deviation=allow_stripe_deviation,
+                backend=self.backend,
+                flag_compose=flag_compose,
+                display_angle_orientation=display_angle_orientation,
+                illu_orient=illu_orient,
+                save_path=save_path,
+            )
+            return out
+        except Exception as e:
+            traceback.print_exc()
+            print(e)
+        finally:
+            try:
+                del fusion_mask
+            except NameError:
+                pass
+            gc.collect()
+            try:
+                os.remove(os.path.join(base, "fusion_mask.npy"))
+            except FileNotFoundError:
+                pass
+            except PermissionError:
+                pass
+            try:
+                if save_path is not None:
+                    base, stem = ensure_abs_tif(save_path)
+                    finalize_save(
+                        os.path.join(base, f"{stem}__work.npy"),
+                        os.path.join(base, f"{stem}__done.npy"),
+                        save_path,
+                    )
+            except (OSError, ValueError):
+                pass

@@ -63,7 +63,7 @@ class Args(argparse.Namespace):
         p.add_argument(
             "--require_precropping",
             type=bool_args,
-            default="True",
+            default=True,
         )
 
         p.add_argument(
@@ -106,14 +106,14 @@ class Args(argparse.Namespace):
         p.add_argument(
             "--require_segmentation",
             type=bool_args,
-            default="True",
+            default=True,
         )
 
         p.add_argument(
             "--device",
             action="store",
             dest="device",
-            default="cuda",
+            default=None,
             type=str,
         )
 
@@ -121,13 +121,6 @@ class Args(argparse.Namespace):
             "--data_path",
             action="store",
             dest="data_path",
-            type=str,
-        )
-
-        p.add_argument(
-            "--sample_name",
-            action="store",
-            dest="sample_name",
             type=str,
         )
 
@@ -196,13 +189,19 @@ class Args(argparse.Namespace):
         p.add_argument(
             "--sparse_sample",
             type=bool_args,
-            default="False",
+            default=False,
         )
 
         p.add_argument(
             "--save_separate_results",
             type=bool_args,
-            default="False",
+            default=False,
+        )
+
+        p.add_argument(
+            "--display",
+            type=bool_args,
+            default=False,
         )
 
         p.add_argument(
@@ -234,7 +233,6 @@ def main():
         )
         _ = exe.train(
             args.data_path,
-            args.sample_name,
             args.top_illu_data,
             args.bottom_illu_data,
             args.left_illu_data,
@@ -245,6 +243,7 @@ def main():
             args.sparse_sample,
             args.cam_pos,
             args.camera_position,
+            args.display,
         )
 
     except Exception as e:
