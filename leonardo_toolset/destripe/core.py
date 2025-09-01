@@ -326,13 +326,15 @@ class DeStripe:
                     )
                 )
             else:
-                Y_GNN = np.asarray(
+                Y_GNN = (
                     F.interpolate(
                         Y_raw,
                         Y_GU.shape[-2:],
                         mode="bilinear",
                         align_corners=True,
                     )
+                    .cpu()
+                    .data.numpy()
                 )
 
             Y = post_process_module(
