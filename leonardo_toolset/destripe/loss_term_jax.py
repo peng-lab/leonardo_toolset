@@ -45,34 +45,6 @@ class GuidedFilterLoss_loss:
         return A * x + b
 
 
-def non_pos_unit(
-    outputGNNraw_original,
-    outputGNNraw,
-    mask_dict,
-    targets,
-    r,
-):
-    m, n = outputGNNraw_original.shape[-2:]
-    outputGNNraw2 = (
-        outputGNNraw * (1 - mask_dict["non_positive_mask"])
-        + targets * mask_dict["non_positive_mask"]
-    )
-    outputGNNraw_original = jnp.concatenate(
-        (outputGNNraw_original, outputGNNraw, outputGNNraw2), 0
-    )
-    outputGNNraw_original_f = jax.image.resize(
-        outputGNNraw_original,
-        (
-            3,
-            1,
-            m,
-            n // r,
-        ),
-        method="bilinear",
-    )
-    return outputGNNraw_original, outputGNNraw_original_f
-
-
 def identical_unit(
     outputGNNraw_original,
     outputGNNraw,
@@ -254,12 +226,8 @@ class Loss_jax:
             r=train_params["max_pool_kernel_size"],
             eps=1,
         )
-        if shape_params["non_positive"]:
-            self.non_postive_uint = non_pos_unit
-            self.main_loss = lambda a, b: 0
-        else:
-            self.non_postive_uint = identical_unit
-            self.main_loss = self.gf_loss
+        self.non_postive_uint = identical_unit
+        self.main_loss = self.gf_loss
 
     def gf_loss(self, targets, outputGNNraw_original):
         return 10 * jnp.sum(
