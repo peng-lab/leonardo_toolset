@@ -326,13 +326,15 @@ class DeStripe:
                     )
                 )
             else:
-                Y_GNN = np.asarray(
+                Y_GNN = (
                     F.interpolate(
                         Y_raw,
                         Y_GU.shape[-2:],
                         mode="bilinear",
                         align_corners=True,
                     )
+                    .cpu()
+                    .data.numpy()
                 )
 
             Y = post_process_module(
@@ -348,6 +350,7 @@ class DeStripe:
                 illu_orient=sample_params["illu_orient"],
                 non_positive=sample_params["non_positive"],
                 allow_stripe_deviation=sample_params["allow_stripe_deviation"],
+                gf_kernel_size=train_params["gf_kernel_size"],
             )
         else:
             Y = 10**Y_GU
@@ -367,7 +370,7 @@ class DeStripe:
         fusion_mask: Union[np.ndarray, da.core.Array] = None,
         display: bool = False,
         device: str = "cpu",
-        non_positive: bool = False,
+        non_positive: bool = True,
         allow_stripe_deviation: bool = False,
         backend: str = "jax",
         flag_compose: bool = False,
@@ -391,10 +394,18 @@ class DeStripe:
             display (bool): Whether to display intermediate results.
             device (str): Device to use.
             non_positive (bool): Whether to allow non-positive values.
+            allow_stripe_deviation (bool): Whether to enable an extra penalty on stripes during
+                post-processing. When True, stripes will be suppressed more strongly
+                at the potential cost of slightly sacrificing sample details.
+                Set True for slightly tilted/wavy stripes or
+                slow illumination drift; keep False to better preserve fine sample details.
+                If `illu_orient` is not specified (post-processing disabled), this flag has no effect.
             backend (str): Backend to use ('jax' or 'torch').
             flag_compose (bool): Whether to compose multiple inputs.
             display_angle_orientation (bool): Whether to display angle orientation.
             illu_orient (str): Illumination orientation.
+            save_path (str) : Absolute path to save the result volume. The file name must end with
+                `.tif` or `.tiff`, as the output is currently supported only in TIF/TIFF format.
 
         Returns:
             np.ndarray: The destriped output volume.
@@ -646,7 +657,7 @@ class DeStripe:
         angle_offset: list[float] = None,
         display: bool = False,
         display_angle_orientation: bool = False,
-        non_positive: bool = False,
+        non_positive: bool = True,
         allow_stripe_deviation: bool = False,
         **kwargs,
     ):
@@ -655,6 +666,9 @@ class DeStripe:
         (also for Leonardo-DeStripe-Fuse).
 
         Args:
+            save_path : str
+                Absolute path to save the result volume. The file name must end with
+                `.tif` or `.tiff`, as the output is currently supported only in TIF/TIFF format.
             is_vertical : bool
                 Whether the stripes are vertical.
             x : dask.array.Array | np.ndarray | str
@@ -680,6 +694,15 @@ class DeStripe:
                 Whether to display check for angle orientation.
             non_positive : bool
                 Whether the stripes are non-positive only.
+                It only affects post-processing module for sample structure preservation (ill. prior, see manuscript).
+                If `illu_orient` is not specified, post-processing will be disabled, and this variable will have no effect.
+            allow_stripe_deviation : bool
+                Whether to enable an extra penalty on stripes during
+                post-processing. When True, stripes will be suppressed more strongly
+                at the potential cost of slightly sacrificing sample details.
+                Set True for slightly tilted/wavy stripes or
+                slow illumination drift; keep False to better preserve fine sample details.
+                If `illu_orient` is not specified (post-processing disabled), this flag has no effect.
             **kwargs
                 Additional keyword arguments for advanced workflows.
 
@@ -708,12 +731,12 @@ class DeStripe:
             Although Leonardo-DeSrtripe(-Fuse) is mainly empowered by a graph a neural network,
             there is an additional post-processing module to further preserve sample details by using illumination priors.
             This can be automatically turned on by giving parameter ``illu_orient`` (in Leonardo-DeStripe mode) through ``**kwargs``.
-            This parameter specifies the direction of illumination in the **image space**.
+            This parameter specifies the direction of illumination in the image space.
 
             - Valid options are: ``"top"``, ``"bottom"``, ``"left"``, ``"right"``,
               and dual-side illuminations: ``"top-bottom"``, ``"left-right"`` (e.g., Ultramicroscope Blaze).
 
-            - In **Leonardo-DeStripe-Fuse mode**, provide multiple orientations via
+            - In Leonardo-DeStripe-Fuse mode, provide multiple orientations via
               ``illu_orient_0``, ``illu_orient_1``, … inside ``**kwargs``.
 
         Notes:
@@ -808,22 +831,32 @@ class DeStripe:
                     "fusion mask is missing."
                 )
 
-                if os.path.isdir(fusion_mask):
-                    count = len([f for f in os.listdir(fusion_mask)])
-                    assert count == X.shape[0], print(
-                        "the folder of fusion mask should contain {} files in total.".format(
-                            X.shape[1]
-                        )
-                    )
-                    fusion_mask = save_memmap_from_images(
-                        fusion_mask,
-                        os.path.join(base, "fusion_mask.npy"),
-                    )
-
-                elif os.path.isfile(fusion_mask):
-                    fusion_mask = np.load(fusion_mask)["mask"]
-                else:
+                if isinstance(fusion_mask, np.ndarray):
                     pass
+                elif isinstance(fusion_mask, str):
+                    if os.path.isdir(fusion_mask):
+                        count = len([f for f in os.listdir(fusion_mask)])
+                        assert count == X.shape[0], print(
+                            "the folder of fusion mask should contain {} files in total.".format(
+                                X.shape[1]
+                            )
+                        )
+                        fusion_mask = save_memmap_from_images(
+                            fusion_mask,
+                            os.path.join(base, "fusion_mask.npy"),
+                        )
+                    elif os.path.isfile(fusion_mask):
+                        fusion_mask = np.load(fusion_mask)["mask"]
+                    else:
+                        print(
+                            "fusion_mask should be either a folder path, a file path, or a np.ndarray."
+                        )
+                        return
+                else:
+                    print(
+                        "fusion_mask should be either a folder path, a file path, or a np.ndarray."
+                    )
+                    return
 
                 if fusion_mask.ndim == 3:
                     fusion_mask = fusion_mask[None]
