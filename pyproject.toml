@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "leonardo_toolset"
 keywords = ["leonardo_toolset"]
-version = "1.0.1"
+version = "1.1.0"
 description = "Leonardo: an LSFM image processing toolset"
 authors = [
     {name = "Yu Liu", email = "liuyu9671@gmail.com" },
