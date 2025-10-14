@@ -2503,10 +2503,16 @@ class FUSE_det:
             segMask = morphology.remove_small_objects(thresh, min_size=25)
             d1 = np.where(np.sum(segMask, axis=0) != 0)[0]
             d2 = np.where(np.sum(segMask, axis=1) != 0)[0]
-            a = max(0, d1[0] - 100)
-            b = min(n, d1[-1] + 100)
-            c = max(0, d2[0] - 100)
-            d = min(m, d2[-1] + 100)
+            try: 
+                a = max(0, d1[0] - 100)
+                b = min(n, d1[-1] + 100)
+                c = max(0, d2[0] - 100)
+                d = min(m, d2[-1] + 100)
+            except IndexError:
+                a = 0
+                b = n
+                c = 0
+                d = m
             cropInfo.loc[f, :] = [c, d, a, b, np.exp(maxv)]
         cropInfo.loc["in summary"] = (
             min(cropInfo["startX"]),
