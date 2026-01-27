@@ -66,6 +66,22 @@ Preprint is available `here <https://doi.org/10.21203/rs.3.rs-5853941/v1>`_.
    .. grid-item-card::
       :text-align: center
 
+      **Tuning Guidance**
+      ^^^
+
+      Parameter tuning and validation workflow.
+
+      +++
+
+      .. button-ref:: tuning_guidance
+         :color: secondary
+         :click-parent:
+
+         To the Tuning Guidance
+
+   .. grid-item-card::
+      :text-align: center
+
       **API Reference**
       ^^^
 
@@ -85,5 +101,6 @@ Preprint is available `here <https://doi.org/10.21203/rs.3.rs-5853941/v1>`_.
 
    installation
    tutorials
+   tuning_guidance
    api
 
