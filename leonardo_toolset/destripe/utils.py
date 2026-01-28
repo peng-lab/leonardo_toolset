@@ -342,7 +342,7 @@ def prepare_aux(
     backend="jax",
 ):
     if not is_vertical:
-        (nd, md) = (md, nd)
+        nd, md = (md, nd)
 
     if backend == "jax":
         dep_package = jnp

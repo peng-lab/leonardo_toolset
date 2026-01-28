@@ -510,14 +510,14 @@ class DeStripe:
                 demo_img = X[z // 2, :, :, :]
                 demo_m, demo_n = demo_img.shape[-2:]
                 if not sample_params["is_vertical"]:
-                    (demo_m, demo_n) = (demo_n, demo_m)
+                    demo_m, demo_n = (demo_n, demo_m)
                 ax[i].imshow(demo_img[i, :].compute() + 1.0)
                 for deg in sample_params["angle_offset_individual"][i]:
                     d = np.tan(np.deg2rad(deg)) * demo_m
                     p0 = [0 + demo_n // 2 - d // 2, d + demo_n // 2 - d // 2]
                     p1 = [0, demo_m - 1]
                     if not sample_params["is_vertical"]:
-                        (p0, p1) = (p1, p0)
+                        p0, p1 = (p1, p0)
                     ax[i].plot(p0, p1, "r")
                 ax[i].axis("off")
             plt.show()
