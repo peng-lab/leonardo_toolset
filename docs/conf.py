@@ -55,7 +55,7 @@ html_theme = "pydata_sphinx_theme"
 pygments_style = "sphinx"
 pygments_dark_style = "monokai"
 
-
+html_static_path = ["_static"]
 html_theme_options = {
     "navbar_start": ["navbar-logo"],
     "navbar_center": ["navbar-nav"],
